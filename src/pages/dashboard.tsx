@@ -16,7 +16,7 @@ export function Dashboard() {
 }
 
 function Stat({ label, value, href, alert }: { label: string; value: number; href?: string; alert?: boolean }) {
-  const className = "rounded-xl border border-line bg-surface p-4 text-left shadow-sm hover:bg-hover";
+  const className = "rounded-2xl border border-line/80 bg-surface p-5 text-left shadow-xs transition duration-200 ease-(--ease-out) hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-900/5";
   const body = (
     <>
       <div className={alert && value > 0 ? "text-2xl font-semibold text-red-600 dark:text-red-400" : "text-2xl font-semibold"}>{value}</div>
@@ -42,7 +42,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Active projects" value={stats.activeProjects} href="/projects?status=active" />
         <Stat label="Open ZSTs" value={stats.openTickets} href="/tickets" />
         <Stat label="Overdue" value={stats.overdue} alert />
@@ -67,7 +67,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
           {deadlines.length === 0 ? (
             <Empty>Nothing overdue or due in the next 7 days.</Empty>
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="stagger divide-y divide-line/70">
               {deadlines.map((d) => (
                 <li key={`${d.kind}-${d.id}`}>
                   <Link to={d.href} className="flex items-center gap-3 py-2.5 hover:opacity-80">
@@ -88,7 +88,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
           {openTickets.length === 0 ? (
             <Empty>No open tickets.</Empty>
           ) : (
-            <ul className="divide-y divide-line">
+            <ul className="stagger divide-y divide-line/70">
               {openTickets.slice(0, 8).map((ticket) => (
                 <li key={ticket.id}>
                   <Link to={`/tickets/${ticket.id}`} className="flex items-center gap-3 py-2.5 hover:opacity-80">
@@ -110,10 +110,10 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
         {activeProjects.length === 0 ? (
           <Empty>No active projects.</Empty>
         ) : (
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {activeProjects.map((p) => (
               <li key={p.id}>
-                <Link to={`/projects/${p.id}`} className="block rounded-lg border border-line p-3 hover:bg-hover">
+                <Link to={`/projects/${p.id}`} className="block rounded-xl border border-line/80 p-3.5 transition duration-200 hover:border-slate-300 hover:bg-hover">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium">{p.name}</div>

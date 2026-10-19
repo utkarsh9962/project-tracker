@@ -20,7 +20,7 @@ Not yet: JIRA sync, Slack/email capture, spreadsheet import, file uploads, shari
 ### 1. Supabase (your database and login)
 
 1. Create a free project at [supabase.com](https://supabase.com).
-2. Open **SQL Editor**, paste the contents of [`supabase/migrations/20261019000000_init.sql`](supabase/migrations/20261019000000_init.sql) and click **Run**. This creates the tables and the privacy rules.
+2. Open **SQL Editor** and run each file in [`supabase/migrations/`](supabase/migrations) in name order: paste its contents and click **Run**. This creates the tables and the privacy rules.
 3. Open **Authentication > Users > Add user > Create new user**. Enter your email and a password and tick **Auto Confirm User**. This is the account you'll log in with.
 4. Open **Authentication > Sign In / Providers** and turn **off** "Allow new users to sign up", so nobody else can create an account.
 5. Open **Project Settings > API** (or the **Connect** button) and copy the **Project URL** and the **publishable** (or `anon`) key. Both are safe to put in a public website; the privacy rules protect the data.

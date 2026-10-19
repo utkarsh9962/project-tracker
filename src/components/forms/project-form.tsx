@@ -7,7 +7,7 @@ import { Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
 export function ProjectForm({ onSave, project, cancelTo }: { onSave: (v: ProjectInput) => Promise<void>; project?: Project; cancelTo: string }) {
   return (
     <Form
-      className="grid gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm sm:grid-cols-2"
+      className="grid gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs sm:grid-cols-2"
       onSubmit={(v) =>
         onSave({
           name: v.name,

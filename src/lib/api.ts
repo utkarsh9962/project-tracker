@@ -10,7 +10,7 @@ async function run<T = unknown>(query: PromiseLike<{ data: unknown; error: { mes
   return data as T;
 }
 
-const RANK: Record<Priority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+const RANK: Record<Priority, number> = { blocker: 0, critical: 1, high: 2, medium: 3, low: 4 };
 const byPriority = (a: { priority: Priority }, b: { priority: Priority }) => RANK[a.priority] - RANK[b.priority];
 const byDue = (a: { due_date: string | null }, b: { due_date: string | null }) => (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999");
 export const isOpenTicket = (t: Pick<Ticket, "status">) => t.status !== "resolved" && t.status !== "closed";
@@ -43,7 +43,7 @@ export async function getDashboard() {
     stats: {
       activeProjects: projects.filter((p) => p.status === "active").length,
       openTickets: openTickets.length,
-      urgentTickets: openTickets.filter((t) => t.priority === "critical" || t.priority === "high").length,
+      urgentTickets: openTickets.filter((t) => t.priority === "blocker" || t.priority === "critical" || t.priority === "high").length,
       overdue: deadlines.filter((d) => d.due < now).length,
       dueThisWeek: deadlines.filter((d) => d.due >= now).length,
     },
