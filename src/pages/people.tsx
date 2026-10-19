@@ -18,7 +18,7 @@ export function People() {
               rows.length === 0 ? (
                 <Empty>No people yet. Add the people you work with, then assign them from a project page.</Empty>
               ) : (
-                <ul className="grid gap-3 sm:grid-cols-2">
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {rows.map(({ person, projects }) => {
                     const current = projects.filter((p) => p.project.status !== "done");
                     return (

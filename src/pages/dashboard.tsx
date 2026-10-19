@@ -110,7 +110,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
         {activeProjects.length === 0 ? (
           <Empty>No active projects.</Empty>
         ) : (
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {activeProjects.map((p) => (
               <li key={p.id}>
                 <Link to={`/projects/${p.id}`} className="block rounded-lg border border-line p-3 hover:bg-hover">
