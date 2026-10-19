@@ -1,6 +1,6 @@
-import Link from "next/link";
+import { Link } from "react-router";
 import { twMerge } from "tailwind-merge";
-import type { ComponentProps, ReactNode } from "react";
+import { useEffect, type ComponentProps, type ReactNode } from "react";
 import { humanize, relativeDue } from "@/lib/format";
 
 // twMerge lets a later class (e.g. w-24) override a default one (w-full).
@@ -159,13 +159,10 @@ export function ListSkeleton({ rows = 4 }: { rows?: number }) {
   );
 }
 
-// Only render links we trust as navigable (blocks javascript: and similar).
-export function safeHref(url: string | null | undefined): string | undefined {
-  if (!url) return undefined;
-  try {
-    const u = new URL(url);
-    return ["http:", "https:", "mailto:", "slack:"].includes(u.protocol) ? u.toString() : undefined;
-  } catch {
-    return undefined;
-  }
+export { safeHref } from "@/lib/format";
+
+export function useTitle(title: string) {
+  useEffect(() => {
+    document.title = title ? `${title} · Project Tracker` : "Project Tracker";
+  }, [title]);
 }

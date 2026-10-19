@@ -1,7 +1,6 @@
-"use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router";
+
 import { cx } from "./ui";
 
 const ITEMS = [
@@ -25,13 +24,13 @@ function Icon({ d }: { d: string }) {
 }
 
 export function TopNav() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   return (
     <nav className="hidden items-center gap-1 md:flex">
       {ITEMS.slice(0, 4).map((item) => (
         <Link
           key={item.href}
-          href={item.href}
+          to={item.href}
           className={cx(
             "rounded-lg px-3 py-1.5 text-sm font-medium",
             isActive(pathname, item.href) ? "bg-hover text-fg" : "text-muted hover:text-fg",
@@ -45,14 +44,14 @@ export function TopNav() {
 }
 
 export function BottomNav() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   return (
     <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
       <ul className="grid grid-cols-5">
         {ITEMS.map((item) => (
           <li key={item.href}>
             <Link
-              href={item.href}
+              to={item.href}
               className={cx(
                 "flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium",
                 isActive(pathname, item.href) ? "text-accent" : "text-muted",
