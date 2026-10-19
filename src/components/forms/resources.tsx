@@ -13,7 +13,7 @@ export function ResourcesCard({ resources, target }: { resources: Resource[]; ta
       {resources.length === 0 ? (
         <Empty>Add links to sheets, docs, PDFs, Slack threads or emails so they live with this work.</Empty>
       ) : (
-        <ul className="divide-y divide-line">
+        <ul className="stagger divide-y divide-line/70">
           {resources.map((r) => {
             const href = safeHref(r.url);
             return (

@@ -39,7 +39,7 @@ export function Tickets() {
             type="button"
             onClick={() => setFilter({ status: s })}
             className={cx(
-              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
+              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
               s === status ? "border-accent bg-accent text-white" : "border-line bg-surface text-muted hover:text-fg",
             )}
           >
@@ -52,7 +52,7 @@ export function Tickets() {
           rows.length === 0 ? (
             <Empty>No tickets match.</Empty>
           ) : (
-            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface shadow-sm">
+            <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
               {rows.map((t) => (
                 <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
                   <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
@@ -176,7 +176,7 @@ function TicketBody({ ticket: t, resources }: NonNullable<Awaited<ReturnType<typ
         actions={
           <>
             {jira && (
-              <a href={jira} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium hover:bg-hover">
+              <a href={jira} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-xl border border-line bg-surface px-3.5 py-2 text-sm font-medium transition hover:bg-hover">
                 Open in JIRA ↗
               </a>
             )}

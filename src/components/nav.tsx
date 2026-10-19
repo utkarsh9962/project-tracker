@@ -1,4 +1,4 @@
-
+import { useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router";
 
 import { cx } from "./ui";
@@ -23,17 +23,44 @@ function Icon({ d }: { d: string }) {
   );
 }
 
+// Segmented control whose white pill slides to the active section.
 export function TopNav() {
   const { pathname } = useLocation();
+  const refs = useRef<(HTMLAnchorElement | null)[]>([]);
+  const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
+  const active = ITEMS.slice(0, 4).findIndex((item) => isActive(pathname, item.href));
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const el = refs.current[active];
+      setPill(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
+    };
+    measure();
+    // Web fonts can arrive after the first paint and change link widths.
+    document.fonts?.ready.then(measure);
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [active]);
+
   return (
-    <nav className="hidden items-center gap-1 md:flex">
-      {ITEMS.slice(0, 4).map((item) => (
+    <nav className="relative hidden items-center rounded-full bg-hover p-1 md:flex">
+      {pill && (
+        <span
+          aria-hidden
+          className="absolute top-1 bottom-1 rounded-full bg-surface shadow-sm ring-1 ring-black/5 transition-all duration-300 ease-(--ease-out)"
+          style={{ left: pill.left, width: pill.width }}
+        />
+      )}
+      {ITEMS.slice(0, 4).map((item, i) => (
         <Link
           key={item.href}
+          ref={(el) => {
+            refs.current[i] = el;
+          }}
           to={item.href}
           className={cx(
-            "rounded-lg px-3 py-1.5 text-sm font-medium",
-            isActive(pathname, item.href) ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10 hover:text-white",
+            "relative rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors duration-200",
+            i === active ? "text-fg" : "text-muted hover:text-fg",
           )}
         >
           {item.label}
@@ -46,22 +73,27 @@ export function TopNav() {
 export function BottomNav() {
   const { pathname } = useLocation();
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+    <nav className="fixed inset-x-3 bottom-3 z-20 mb-[env(safe-area-inset-bottom)] rounded-2xl border border-line/70 bg-white/85 shadow-lg shadow-slate-900/5 backdrop-blur-xl md:hidden">
       <ul className="grid grid-cols-5">
-        {ITEMS.map((item) => (
-          <li key={item.href}>
-            <Link
-              to={item.href}
-              className={cx(
-                "flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium",
-                isActive(pathname, item.href) ? "text-accent" : "text-muted",
-              )}
-            >
-              <Icon d={item.icon} />
-              {item.label}
-            </Link>
-          </li>
-        ))}
+        {ITEMS.map((item) => {
+          const on = isActive(pathname, item.href);
+          return (
+            <li key={item.href}>
+              <Link
+                to={item.href}
+                className={cx(
+                  "flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors duration-200",
+                  on ? "text-accent" : "text-muted",
+                )}
+              >
+                <span className={cx("transition-transform duration-300 ease-(--ease-out)", on && "-translate-y-0.5 scale-110")}>
+                  <Icon d={item.icon} />
+                </span>
+                {item.label}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );

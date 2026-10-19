@@ -18,11 +18,11 @@ export function People() {
               rows.length === 0 ? (
                 <Empty>No people yet. Add the people you work with, then assign them from a project page.</Empty>
               ) : (
-                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {rows.map(({ person, projects }) => {
                     const current = projects.filter((p) => p.project.status !== "done");
                     return (
-                      <li key={person.id} className="rounded-xl border border-line bg-surface p-4 shadow-sm">
+                      <li key={person.id} className="rounded-2xl border border-line/80 bg-surface p-5 shadow-xs">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <div className="truncate font-medium">{person.name}</div>
@@ -103,7 +103,7 @@ export function EditPerson() {
             }
           />
           <Form
-            className="grid max-w-xl gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm"
+            className="grid max-w-xl gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs"
             onSubmit={async (v) => {
               await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes) }));
               navigate("/people");

@@ -1,5 +1,5 @@
 export const PROJECT_STATUSES = ["planning", "active", "on_hold", "done"] as const;
-export const PRIORITIES = ["low", "medium", "high", "critical"] as const;
+export const PRIORITIES = ["low", "medium", "high", "critical", "blocker"] as const;
 export const TASK_STATUSES = ["todo", "in_progress", "done"] as const;
 export const TICKET_STATUSES = ["open", "in_progress", "waiting", "resolved", "closed"] as const;
 export const RESOURCE_KINDS = ["link", "doc", "sheet", "pdf", "slack", "email", "jira", "note", "other"] as const;

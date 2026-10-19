@@ -8,7 +8,7 @@ function Section({ title, count, children }: { title: string; count: number; chi
   if (count === 0) return null;
   return (
     <Card title={`${title} (${count})`}>
-      <ul className="divide-y divide-line">{children}</ul>
+      <ul className="stagger divide-y divide-line/70">{children}</ul>
     </Card>
   );
 }

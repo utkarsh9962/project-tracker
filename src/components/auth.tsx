@@ -35,7 +35,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 function Shell({ children }: { children: ReactNode }) {
   return (
     <main className="grid min-h-dvh place-items-center px-4">
-      <div className="w-full max-w-sm rounded-2xl border border-line bg-surface p-6 shadow-sm">
+      <div className="w-full max-w-sm animate-enter rounded-3xl border border-line/80 bg-surface p-7 shadow-xl shadow-slate-900/5">
         <div className="mb-5 flex items-center gap-2">
           <Logo />
           <h1 className="text-lg font-semibold">Project Tracker</h1>

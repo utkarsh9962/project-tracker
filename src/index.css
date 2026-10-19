@@ -1,17 +1,18 @@
 @import "tailwindcss";
 
 :root {
-  /* Quicket blue and white, taken from the Quicket logo. */
-  --bg: #f2f7fc;
+  /* Quicket blue on white, taken from the Quicket logo. */
+  --bg: #f7f9fc;
   --surface: #ffffff;
-  --hover: #e6f0fa;
-  --line: #d5e3f1;
-  --fg: #0f1b33;
-  --muted: #586a86;
+  --hover: #f1f5fa;
+  --line: #e4e9f1;
+  --fg: #0f172a;
+  --muted: #64748b;
   --accent: #1e6fbb;
   --accent-strong: #1d4ba6;
   --brand-light: #1ea4e5;
   --brand-deep: #1d4ba6;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @theme inline {
@@ -38,4 +39,49 @@ html {
 body {
   background: var(--bg);
   color: var(--fg);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* Pages and lists ease in when they appear. */
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.animate-enter {
+  animation: enter 0.35s var(--ease-out) both;
+}
+
+.stagger > * {
+  animation: enter 0.4s var(--ease-out) both;
+}
+.stagger > :nth-child(1) { animation-delay: 30ms; }
+.stagger > :nth-child(2) { animation-delay: 60ms; }
+.stagger > :nth-child(3) { animation-delay: 90ms; }
+.stagger > :nth-child(4) { animation-delay: 120ms; }
+.stagger > :nth-child(5) { animation-delay: 150ms; }
+.stagger > :nth-child(6) { animation-delay: 180ms; }
+.stagger > :nth-child(7) { animation-delay: 210ms; }
+.stagger > :nth-child(8) { animation-delay: 240ms; }
+.stagger > :nth-child(9) { animation-delay: 270ms; }
+.stagger > :nth-child(10) { animation-delay: 300ms; }
+.stagger > :nth-child(11) { animation-delay: 330ms; }
+.stagger > :nth-child(12) { animation-delay: 360ms; }
+.stagger > :nth-child(n + 13) {
+  animation-delay: 390ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

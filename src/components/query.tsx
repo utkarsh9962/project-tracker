@@ -8,7 +8,7 @@ export function Load<T>({ queryKey, fn, children, rows }: { queryKey: QueryKey; 
   if (q.isPending) return <ListSkeleton rows={rows} />;
   if (q.isError)
     return (
-      <div className="space-y-3 rounded-xl border border-red-300 bg-surface p-4 dark:border-red-800">
+      <div className="space-y-3 rounded-2xl border border-red-200 bg-surface p-5">
         <h2 className="font-semibold">Couldn’t load this</h2>
         <p className="text-sm text-muted">{q.error.message}</p>
         <Button variant="secondary" onClick={() => q.refetch()}>

@@ -22,7 +22,7 @@ export function Projects() {
             key={s}
             to={s === "all" ? "/projects" : `/projects?status=${s}`}
             className={cx(
-              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
+              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
               s === status ? "border-accent bg-accent text-white" : "border-line bg-surface text-muted hover:text-fg",
             )}
           >
@@ -35,10 +35,10 @@ export function Projects() {
           rows.length === 0 ? (
             <Empty>No projects{status !== "all" ? ` with status “${humanize(status)}”` : ""} yet.</Empty>
           ) : (
-            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <ul className="stagger grid grid-cols-1 gap-3 md:grid-cols-2">
               {rows.map(({ project: p, openTasks, openTickets }) => (
                 <li key={p.id}>
-                  <Link to={`/projects/${p.id}`} className="block rounded-xl border border-line bg-surface p-4 shadow-sm hover:bg-hover">
+                  <Link to={`/projects/${p.id}`} className="block rounded-2xl border border-line/80 bg-surface p-5 shadow-xs transition duration-200 ease-(--ease-out) hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-900/5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate font-medium">{p.name}</div>
@@ -183,7 +183,7 @@ function ProjectBody({ project: p, tasks, team, tickets, resources }: NonNullabl
             {tasks.length === 0 ? (
               <Empty>No tasks yet.</Empty>
             ) : (
-              <ul className="divide-y divide-line">
+              <ul className="stagger divide-y divide-line/70">
                 {tasks.map((task) => (
                   <li key={task.id} className="flex flex-wrap items-center gap-2 py-2.5">
                     <AutoSubmitSelect
@@ -223,7 +223,7 @@ function ProjectBody({ project: p, tasks, team, tickets, resources }: NonNullabl
             {tickets.length === 0 ? (
               <Empty>No tickets linked to this project.</Empty>
             ) : (
-              <ul className="divide-y divide-line">
+              <ul className="stagger divide-y divide-line/70">
                 {tickets.map((t) => (
                   <li key={t.id}>
                     <Link to={`/tickets/${t.id}`} className="flex items-center gap-3 py-2.5 hover:opacity-80">
@@ -255,7 +255,7 @@ function TeamCard({ projectId, team }: { projectId: number; team: { role: string
       {team.length === 0 ? (
         <Empty>No one assigned yet.</Empty>
       ) : (
-        <ul className="divide-y divide-line">
+        <ul className="stagger divide-y divide-line/70">
           {team.map(({ person, role }) => (
             <li key={person.id} className="flex items-center gap-2 py-2">
               <div className="min-w-0 flex-1">
