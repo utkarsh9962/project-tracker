@@ -33,7 +33,7 @@ export function TopNav() {
           to={item.href}
           className={cx(
             "rounded-lg px-3 py-1.5 text-sm font-medium",
-            isActive(pathname, item.href) ? "bg-hover text-fg" : "text-muted hover:text-fg",
+            isActive(pathname, item.href) ? "bg-white/20 text-white" : "text-white/80 hover:bg-white/10 hover:text-white",
           )}
         >
           {item.label}

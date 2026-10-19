@@ -41,7 +41,7 @@ const TONES: Record<string, string> = {
   on_hold: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
   done: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
   todo: "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
-  in_progress: "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-200",
+  in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200",
   open: "bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200",
   waiting: "bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200",
   resolved: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200",
@@ -80,6 +80,10 @@ export function Progress({ value }: { value: number }) {
       <span className="w-9 text-right text-xs tabular-nums text-muted">{value}%</span>
     </div>
   );
+}
+
+export function Logo({ className }: { className?: string }) {
+  return <img src="./logo.png" alt="Quicket" className={cx("h-8 w-8 rounded-lg", className)} />;
 }
 
 export function Empty({ children }: { children: ReactNode }) {

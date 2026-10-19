@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createContext, use, useEffect, useState, type ReactNode } from "react";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import { Form, SubmitButton } from "./client";
-import { inputClass } from "./ui";
+import { inputClass, Logo } from "./ui";
 
 const SessionContext = createContext<Session | null>(null);
 export const useSession = () => use(SessionContext);
@@ -37,7 +37,7 @@ function Shell({ children }: { children: ReactNode }) {
     <main className="grid min-h-dvh place-items-center px-4">
       <div className="w-full max-w-sm rounded-2xl border border-line bg-surface p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-sm font-semibold text-white">PT</span>
+          <Logo className="h-9 w-9" />
           <h1 className="text-lg font-semibold">Project Tracker</h1>
         </div>
         {children}

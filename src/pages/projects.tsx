@@ -35,7 +35,7 @@ export function Projects() {
           rows.length === 0 ? (
             <Empty>No projects{status !== "all" ? ` with status “${humanize(status)}”` : ""} yet.</Empty>
           ) : (
-            <ul className="grid gap-3 md:grid-cols-2">
+            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {rows.map(({ project: p, openTasks, openTickets }) => (
                 <li key={p.id}>
                   <Link to={`/projects/${p.id}`} className="block rounded-xl border border-line bg-surface p-4 shadow-sm hover:bg-hover">

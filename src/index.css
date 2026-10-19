@@ -1,27 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f6f7f9;
+  /* Quicket blue and white, taken from the Quicket logo. */
+  --bg: #f2f7fc;
   --surface: #ffffff;
-  --hover: #f1f2f5;
-  --line: #e3e5ea;
-  --fg: #15171c;
-  --muted: #646b78;
-  --accent: #4f46e5;
-  --accent-strong: #4338ca;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0e1014;
-    --surface: #171a20;
-    --hover: #1f232b;
-    --line: #2a2f39;
-    --fg: #e8eaee;
-    --muted: #9aa1ad;
-    --accent: #6366f1;
-    --accent-strong: #818cf8;
-  }
+  --hover: #e6f0fa;
+  --line: #d5e3f1;
+  --fg: #0f1b33;
+  --muted: #586a86;
+  --accent: #1e6fbb;
+  --accent-strong: #1d4ba6;
+  --brand-light: #1ea4e5;
+  --brand-deep: #1d4ba6;
 }
 
 @theme inline {
@@ -33,14 +23,16 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-strong: var(--accent-strong);
+  --color-brand-light: var(--brand-light);
+  --color-brand-deep: var(--brand-deep);
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Geist Mono", ui-monospace, Menlo, monospace;
 }
 
-@custom-variant dark (@media (prefers-color-scheme: dark));
+@custom-variant dark (&:where(.dark, .dark *));
 
 html {
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
 body {
