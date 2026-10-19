@@ -1,22 +1,39 @@
-import { PRIORITIES, TICKET_STATUSES, type Ticket } from "@/db/schema";
-import { SubmitButton } from "@/components/client";
+import type { TicketInput } from "@/lib/api";
+import { PRIORITIES, TICKET_STATUSES, type Ticket } from "@/lib/types";
+import { opt, optId, url } from "@/lib/values";
+import { Form, SubmitButton } from "@/components/client";
 import { Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
 
 export function TicketForm({
-  action,
+  onSave,
   ticket,
   projects,
   defaultProjectId,
-  cancelHref,
+  cancelTo,
 }: {
-  action: (fd: FormData) => Promise<void>;
+  onSave: (v: TicketInput) => Promise<void>;
   ticket?: Ticket;
   projects: { id: number; name: string }[];
   defaultProjectId?: number;
-  cancelHref: string;
+  cancelTo: string;
 }) {
   return (
-    <form action={action} className="grid gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm sm:grid-cols-2">
+    <Form
+      className="grid gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm sm:grid-cols-2"
+      onSubmit={(v) =>
+        onSave({
+          key: v.key.toUpperCase(),
+          title: v.title,
+          client: opt(v.client),
+          project_id: optId(v.project_id),
+          priority: v.priority as Ticket["priority"],
+          status: v.status as Ticket["status"],
+          url: url(v),
+          due_date: opt(v.due_date),
+          notes: opt(v.notes),
+        })
+      }
+    >
       <Field label="Ticket key">
         <Input name="key" required defaultValue={ticket?.key ?? "ZST-"} placeholder="ZST-1234" className="font-mono" />
       </Field>
@@ -34,13 +51,13 @@ export function TicketForm({
       </Field>
       <Field label="Project">
         <Select
-          name="projectId"
+          name="project_id"
           options={[{ value: "", label: "No project" }, ...projects.map((p) => ({ value: p.id, label: p.name }))]}
-          defaultValue={String(ticket?.projectId ?? defaultProjectId ?? "")}
+          defaultValue={String(ticket?.project_id ?? defaultProjectId ?? "")}
         />
       </Field>
       <Field label="Due / SLA date">
-        <Input name="dueDate" type="date" defaultValue={ticket?.dueDate ?? ""} />
+        <Input name="due_date" type="date" defaultValue={ticket?.due_date ?? ""} />
       </Field>
       <Field label="JIRA link" className="sm:col-span-2">
         <Input name="url" defaultValue={ticket?.url ?? ""} placeholder="https://yourcompany.atlassian.net/browse/ZST-1234" />
@@ -50,10 +67,10 @@ export function TicketForm({
       </Field>
       <div className="flex gap-2 sm:col-span-2">
         <SubmitButton>{ticket ? "Save changes" : "Create ticket"}</SubmitButton>
-        <LinkButton href={cancelHref} variant="secondary">
+        <LinkButton to={cancelTo} variant="secondary">
           Cancel
         </LinkButton>
       </div>
-    </form>
+    </Form>
   );
 }

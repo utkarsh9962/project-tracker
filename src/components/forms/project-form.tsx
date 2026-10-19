@@ -1,10 +1,26 @@
-import { PRIORITIES, PROJECT_STATUSES, type Project } from "@/db/schema";
-import { SubmitButton } from "@/components/client";
+import { PRIORITIES, PROJECT_STATUSES, type Project } from "@/lib/types";
+import type { ProjectInput } from "@/lib/api";
+import { opt, pct } from "@/lib/values";
+import { Form, SubmitButton } from "@/components/client";
 import { Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
 
-export function ProjectForm({ action, project, cancelHref }: { action: (fd: FormData) => Promise<void>; project?: Project; cancelHref: string }) {
+export function ProjectForm({ onSave, project, cancelTo }: { onSave: (v: ProjectInput) => Promise<void>; project?: Project; cancelTo: string }) {
   return (
-    <form action={action} className="grid gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm sm:grid-cols-2">
+    <Form
+      className="grid gap-4 rounded-xl border border-line bg-surface p-4 shadow-sm sm:grid-cols-2"
+      onSubmit={(v) =>
+        onSave({
+          name: v.name,
+          client: opt(v.client),
+          description: opt(v.description),
+          status: v.status as Project["status"],
+          priority: v.priority as Project["priority"],
+          progress: pct(v.progress),
+          start_date: opt(v.start_date),
+          due_date: opt(v.due_date),
+        })
+      }
+    >
       <Field label="Project name" className="sm:col-span-2">
         <Input name="name" required defaultValue={project?.name} placeholder="e.g. Acme onboarding" />
       </Field>
@@ -21,20 +37,20 @@ export function ProjectForm({ action, project, cancelHref }: { action: (fd: Form
         <Select name="priority" options={PRIORITIES} defaultValue={project?.priority ?? "medium"} />
       </Field>
       <Field label="Start date">
-        <Input name="startDate" type="date" defaultValue={project?.startDate ?? ""} />
+        <Input name="start_date" type="date" defaultValue={project?.start_date ?? ""} />
       </Field>
       <Field label="Due date">
-        <Input name="dueDate" type="date" defaultValue={project?.dueDate ?? ""} />
+        <Input name="due_date" type="date" defaultValue={project?.due_date ?? ""} />
       </Field>
       <Field label="Description" className="sm:col-span-2">
         <Textarea name="description" rows={4} defaultValue={project?.description ?? ""} />
       </Field>
       <div className="flex gap-2 sm:col-span-2">
         <SubmitButton>{project ? "Save changes" : "Create project"}</SubmitButton>
-        <LinkButton href={cancelHref} variant="secondary">
+        <LinkButton to={cancelTo} variant="secondary">
           Cancel
         </LinkButton>
       </div>
-    </form>
+    </Form>
   );
 }
