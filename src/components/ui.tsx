@@ -83,7 +83,11 @@ export function Progress({ value }: { value: number }) {
 }
 
 export function Logo({ className }: { className?: string }) {
-  return <img src="./logo.png" alt="Quicket" className={cx("h-8 w-8 rounded-lg", className)} />;
+  return (
+    <span className={cx("grid h-9 w-12 shrink-0 place-items-center rounded-lg bg-white shadow-sm ring-1 ring-black/5", className)}>
+      <img src="./logo.png" alt="Quicket" className="h-6 w-auto" />
+    </span>
+  );
 }
 
 export function Empty({ children }: { children: ReactNode }) {
