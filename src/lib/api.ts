@@ -55,10 +55,13 @@ const STATUS_ORDER = { active: 0, planning: 1, on_hold: 2, done: 3 } as const;
 export async function listProjects(status: string) {
   let q = supabase.from("projects").select("*");
   if (status !== "all") q = q.eq("status", status);
-  const [projects, tasks, tickets] = await Promise.all([
+  const [projects, tasks, tickets, managers] = await Promise.all([
     run<Project[]>(q),
     run<Pick<Task, "project_id">[]>(supabase.from("tasks").select("project_id").neq("status", "done")),
     run<Pick<Ticket, "project_id">[]>(supabase.from("tickets").select("project_id").not("status", "in", "(resolved,closed)")),
+    run<{ project_id: number; person: Pick<Person, "id" | "name"> }[]>(
+      supabase.from("project_people").select("project_id, person:people(id, name)").eq("role", PM_ROLE),
+    ),
   ]);
   return projects
     .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byDue(a, b))
@@ -66,10 +69,14 @@ export async function listProjects(status: string) {
       project,
       openTasks: tasks.filter((t) => t.project_id === project.id).length,
       openTickets: tickets.filter((t) => t.project_id === project.id).length,
+      managers: managers.filter((m) => m.project_id === project.id).map((m) => m.person),
     }));
 }
 
 const TASK_ORDER = { in_progress: 0, todo: 1, done: 2 } as const;
+
+// Project managers are people whose role is this, assigned to projects with the same role.
+export const PM_ROLE = "Project manager";
 
 export async function getProject(id: number) {
   const project = await run<Project | null>(supabase.from("projects").select("*").eq("id", id).maybeSingle());
@@ -83,7 +90,8 @@ export async function getProject(id: number) {
   return {
     project,
     tasks: tasks.sort((a, b) => TASK_ORDER[a.status] - TASK_ORDER[b.status] || byDue(a, b)),
-    team: team.sort((a, b) => a.person.name.localeCompare(b.person.name)),
+    team: team.filter((m) => m.role !== PM_ROLE).sort((a, b) => a.person.name.localeCompare(b.person.name)),
+    managers: team.filter((m) => m.role === PM_ROLE).map((m) => m.person).sort((a, b) => a.name.localeCompare(b.name)),
     tickets: tickets.sort(byPriority),
     resources,
   };
@@ -120,6 +128,7 @@ export async function listPeople() {
 
 export const getPerson = (id: number) => run<Person | null>(supabase.from("people").select("*").eq("id", id).maybeSingle());
 export const projectOptions = () => run<Pick<Project, "id" | "name">[]>(supabase.from("projects").select("id, name").order("name"));
+export const managerOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").eq("role", PM_ROLE).order("name"));
 export const peopleOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").order("name"));
 
 // A personal tracker stays small, so search filters everything client-side.
@@ -165,7 +174,7 @@ export const createTicket = (v: TicketInput) => run<{ id: number }>(supabase.fro
 export const updateTicket = (id: number, v: Partial<TicketInput>) => run(supabase.from("tickets").update(v).eq("id", id));
 export const deleteTicket = (id: number) => run(supabase.from("tickets").delete().eq("id", id));
 
-export const createPerson = (v: PersonInput) => run(supabase.from("people").insert(v));
+export const createPerson = (v: PersonInput) => run<{ id: number }>(supabase.from("people").insert(v).select("id").single());
 export const updatePerson = (id: number, v: PersonInput) => run(supabase.from("people").update(v).eq("id", id));
 export const deletePerson = (id: number) => run(supabase.from("people").delete().eq("id", id));
 
