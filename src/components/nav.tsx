@@ -6,6 +6,7 @@ import { cx } from "./ui";
 const ITEMS = [
   { href: "/", label: "Home", icon: "M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" },
   { href: "/projects", label: "Projects", icon: "M3 7h6l2 2h10v10H3z" },
+  { href: "/milestones", label: "Milestones", icon: "M5 21V4M5 4h12l-2.5 4L17 12H5" },
   { href: "/tickets", label: "ZSTs", icon: "M4 6h16v4a2 2 0 000 4v4H4v-4a2 2 0 000-4z" },
   { href: "/people", label: "People", icon: "M16 19v-1a4 4 0 00-8 0v1M12 11a3 3 0 100-6 3 3 0 000 6zM20 19v-1a3 3 0 00-3-3M17 5a3 3 0 010 6" },
   { href: "/search", label: "Search", icon: "M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5" },
@@ -28,7 +29,7 @@ export function TopNav() {
   const { pathname } = useLocation();
   const refs = useRef<(HTMLAnchorElement | null)[]>([]);
   const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
-  const active = ITEMS.slice(0, 4).findIndex((item) => isActive(pathname, item.href));
+  const active = ITEMS.slice(0, 5).findIndex((item) => isActive(pathname, item.href));
 
   useLayoutEffect(() => {
     const measure = () => {
@@ -51,7 +52,7 @@ export function TopNav() {
           style={{ left: pill.left, width: pill.width }}
         />
       )}
-      {ITEMS.slice(0, 4).map((item, i) => (
+      {ITEMS.slice(0, 5).map((item, i) => (
         <Link
           key={item.href}
           ref={(el) => {
@@ -74,7 +75,7 @@ export function BottomNav() {
   const { pathname } = useLocation();
   return (
     <nav className="fixed inset-x-3 bottom-3 z-20 mb-[env(safe-area-inset-bottom)] rounded-2xl border border-line/70 bg-white/85 shadow-lg shadow-slate-900/5 backdrop-blur-xl md:hidden">
-      <ul className="grid grid-cols-5">
+      <ul className="grid grid-cols-6">
         {ITEMS.map((item) => {
           const on = isActive(pathname, item.href);
           return (
@@ -82,7 +83,7 @@ export function BottomNav() {
               <Link
                 to={item.href}
                 className={cx(
-                  "flex flex-col items-center gap-0.5 py-2.5 text-[11px] font-medium transition-colors duration-200",
+                  "flex flex-col items-center gap-0.5 py-2.5 text-[10px] font-medium transition-colors duration-200",
                   on ? "text-accent" : "text-muted",
                 )}
               >

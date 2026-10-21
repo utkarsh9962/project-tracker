@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
-import type { Assignment, Person, Priority, Project, Resource, Task, Ticket } from "./types";
+import type { Assignment, Milestone, Person, Priority, Project, Resource, Task, Ticket } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
 // Row types come from src/lib/types.ts rather than generated database types, hence the cast.
@@ -81,11 +81,12 @@ export const PM_ROLE = "Project manager";
 export async function getProject(id: number) {
   const project = await run<Project | null>(supabase.from("projects").select("*").eq("id", id).maybeSingle());
   if (!project) return null;
-  const [tasks, team, tickets, resources] = await Promise.all([
+  const [tasks, team, tickets, resources, milestones] = await Promise.all([
     run<(Task & { assignee: { name: string } | null })[]>(supabase.from("tasks").select("*, assignee:people(name)").eq("project_id", id).order("id")),
     run<{ role: string | null; person: Person }[]>(supabase.from("project_people").select("role, person:people(*)").eq("project_id", id)),
     run<Ticket[]>(supabase.from("tickets").select("*").eq("project_id", id).order("updated_at", { ascending: false })),
     run<Resource[]>(supabase.from("resources").select("*").eq("project_id", id).order("created_at", { ascending: false })),
+    run<Milestone[]>(supabase.from("milestones").select("*").eq("project_id", id).order("id")),
   ]);
   return {
     project,
@@ -94,7 +95,25 @@ export async function getProject(id: number) {
     managers: team.filter((m) => m.role === PM_ROLE).map((m) => m.person).sort((a, b) => a.name.localeCompare(b.name)),
     tickets: tickets.sort(byPriority),
     resources,
+    milestones: milestones.sort(byMilestone),
   };
+}
+
+// Open milestones first, then by date (undated last), then in the order they were added.
+const byMilestone = (a: Milestone, b: Milestone) => Number(a.done) - Number(b.done) || byDue(a, b) || a.id - b.id;
+
+// Every milestone grouped by project, for the Milestones page. Projects without milestones are left out.
+export async function listMilestones() {
+  const rows = await run<WithProject<Milestone>[]>(supabase.from("milestones").select("*, project:projects(name)"));
+  const groups = new Map<number, { projectId: number; name: string; milestones: Milestone[] }>();
+  for (const m of rows) {
+    const g = groups.get(m.project_id) ?? { projectId: m.project_id, name: m.project?.name ?? "", milestones: [] };
+    g.milestones.push(m);
+    groups.set(m.project_id, g);
+  }
+  return [...groups.values()]
+    .map((g) => ({ ...g, milestones: g.milestones.sort(byMilestone) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function listTickets(filter: { status: string; q: string }) {
@@ -180,3 +199,8 @@ export const deletePerson = (id: number) => run(supabase.from("people").delete()
 
 export const addResource = (v: ResourceInput) => run(supabase.from("resources").insert(v));
 export const deleteResource = (id: number) => run(supabase.from("resources").delete().eq("id", id));
+
+export type MilestoneInput = Pick<Milestone, "project_id" | "title" | "due_date">;
+export const createMilestone = (v: MilestoneInput) => run(supabase.from("milestones").insert(v));
+export const updateMilestone = (id: number, v: Partial<Omit<Milestone, "id">>) => run(supabase.from("milestones").update(v).eq("id", id));
+export const deleteMilestone = (id: number) => run(supabase.from("milestones").delete().eq("id", id));
