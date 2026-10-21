@@ -1,18 +1,28 @@
+import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
 import { formatDate, humanize } from "@/lib/format";
-import { PROJECT_STATUSES, TASK_STATUSES } from "@/lib/types";
+import { PROJECT_STATUSES, TASK_STATUSES, type Task } from "@/lib/types";
 import { opt, optId, pct } from "@/lib/values";
 import { AutoSubmitSelect, ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { ProjectForm } from "@/components/forms/project-form";
 import { ResourcesCard } from "@/components/forms/resources";
 import { Load } from "@/components/query";
-import { Badge, Card, cx, DueBadge, Empty, Input, LinkButton, PageHeader, Progress, Select, useTitle } from "@/components/ui";
+import { Badge, Button, Card, cx, DueBadge, Empty, Input, LinkButton, PageHeader, Progress, Select, useTitle } from "@/components/ui";
 
 export function Projects() {
   useTitle("Projects");
   const [params] = useSearchParams();
   const status = params.get("status") ?? "all";
+  const pm = Number(params.get("pm")) || null;
+  const link = (next: { status?: string; pm?: number | null }) => {
+    const q = new URLSearchParams();
+    const s = next.status ?? status;
+    const m = next.pm === undefined ? pm : next.pm;
+    if (s !== "all") q.set("status", s);
+    if (m) q.set("pm", String(m));
+    return q.size ? `/projects?${q}` : "/projects";
+  };
   return (
     <>
       <PageHeader title="Projects" actions={<LinkButton to="/projects/new">New project</LinkButton>} />
@@ -20,7 +30,7 @@ export function Projects() {
         {["all", ...PROJECT_STATUSES].map((s) => (
           <Link
             key={s}
-            to={s === "all" ? "/projects" : `/projects?status=${s}`}
+            to={link({ status: s })}
             className={cx(
               "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
               s === status ? "border-accent bg-accent text-white" : "border-line bg-surface text-muted hover:text-fg",
@@ -30,19 +40,42 @@ export function Projects() {
           </Link>
         ))}
       </div>
+      <Load queryKey={["manager-options"]} fn={api.managerOptions} rows={0}>
+        {(managers) =>
+          managers.length > 0 && (
+            <div className="-mx-4 -mt-2 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-1">
+              <span className="shrink-0 text-xs text-muted">PM</span>
+              {[{ id: 0, name: "Anyone" }, ...managers].map((m) => (
+                <Link
+                  key={m.id}
+                  to={link({ pm: m.id || null })}
+                  className={cx(
+                    "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
+                    (pm ?? 0) === m.id ? "border-accent-strong bg-accent/10 text-accent-strong" : "border-line bg-surface text-muted hover:text-fg",
+                  )}
+                >
+                  {m.name}
+                </Link>
+              ))}
+            </div>
+          )
+        }
+      </Load>
       <Load queryKey={["projects", status]} fn={() => api.listProjects(status)}>
-        {(rows) =>
-          rows.length === 0 ? (
-            <Empty>No projects{status !== "all" ? ` with status “${humanize(status)}”` : ""} yet.</Empty>
+        {(all) => {
+          const rows = pm ? all.filter((r) => r.managers.some((m) => m.id === pm)) : all;
+          return rows.length === 0 ? (
+            <Empty>No projects{status !== "all" ? ` with status “${humanize(status)}”` : ""}{pm ? " for this PM" : ""} yet.</Empty>
           ) : (
             <ul className="stagger grid grid-cols-1 gap-3 md:grid-cols-2">
-              {rows.map(({ project: p, openTasks, openTickets }) => (
+              {rows.map(({ project: p, openTasks, openTickets, managers }) => (
                 <li key={p.id}>
                   <Link to={`/projects/${p.id}`} className="block rounded-2xl border border-line/80 bg-surface p-5 shadow-xs transition duration-200 ease-(--ease-out) hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-900/5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className="truncate font-medium">{p.name}</div>
                         {p.client && <div className="truncate text-sm text-muted">{p.client}</div>}
+                        {managers.length > 0 && <div className="truncate text-xs text-accent-strong">PM · {managers.map((m) => m.name).join(", ")}</div>}
                       </div>
                       <Badge value={p.status} />
                     </div>
@@ -60,8 +93,8 @@ export function Projects() {
                 </li>
               ))}
             </ul>
-          )
-        }
+          );
+        }}
       </Load>
     </>
   );
@@ -131,11 +164,16 @@ export function ProjectDetail() {
   );
 }
 
-function ProjectBody({ project: p, tasks, team, tickets, resources }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
+function ProjectBody({ project: p, tasks, team, managers, tickets, resources }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
   useTitle(p.name);
   const mutate = useMutate();
   const doneTasks = tasks.filter((t) => t.status === "done").length;
-  const assigneeOptions = [{ value: "", label: "Unassigned" }, ...team.map((m) => ({ value: m.person.id, label: m.person.name }))];
+  const assignees = new Map<number, string>(team.map((m) => [m.person.id, m.person.name]));
+  for (const t of tasks) if (t.assignee_id && t.assignee) assignees.set(t.assignee_id, t.assignee.name);
+  const assigneeOptions = [
+    { value: "", label: "Unassigned" },
+    ...[...assignees].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label })),
+  ];
 
   return (
     <>
@@ -146,6 +184,7 @@ function ProjectBody({ project: p, tasks, team, tickets, resources }: NonNullabl
       </div>
       <PageHeader
         title={p.name}
+        aside={<ManagerPicker projectId={p.id} managers={managers} />}
         subtitle={[p.client, p.start_date && `Started ${formatDate(p.start_date)}`, p.due_date && `Due ${formatDate(p.due_date)}`].filter(Boolean).join(" · ")}
         actions={
           <LinkButton to={`/projects/${p.id}/edit`} variant="secondary">
@@ -185,18 +224,7 @@ function ProjectBody({ project: p, tasks, team, tickets, resources }: NonNullabl
             ) : (
               <ul className="stagger divide-y divide-line/70">
                 {tasks.map((task) => (
-                  <li key={task.id} className="flex flex-wrap items-center gap-2 py-2.5">
-                    <AutoSubmitSelect
-                      value={task.status}
-                      options={TASK_STATUSES}
-                      label={`Status of ${task.title}`}
-                      onChange={(status) => mutate(() => api.updateTask(task.id, { status: status as typeof task.status }))}
-                    />
-                    <span className={task.status === "done" ? "min-w-0 flex-1 text-sm text-muted line-through" : "min-w-0 flex-1 text-sm"}>{task.title}</span>
-                    {task.assignee && <span className="text-xs text-muted">{task.assignee.name}</span>}
-                    {task.status !== "done" && <DueBadge date={task.due_date} />}
-                    <ConfirmButton onConfirm={() => mutate(() => api.deleteTask(task.id))} />
-                  </li>
+                  <TaskRow key={task.id} task={task} assigneeOptions={assigneeOptions} />
                 ))}
               </ul>
             )}
@@ -245,6 +273,117 @@ function ProjectBody({ project: p, tasks, team, tickets, resources }: NonNullabl
         </div>
       </div>
     </>
+  );
+}
+
+type AssigneeOption = { value: string | number; label: string };
+
+// One task line; Edit swaps it for an inline form to change the title, date and assignee.
+function TaskRow({ task, assigneeOptions }: { task: Task & { assignee: { name: string } | null }; assigneeOptions: AssigneeOption[] }) {
+  const mutate = useMutate();
+  const [editing, setEditing] = useState(false);
+  if (editing)
+    return (
+      <li className="py-2.5">
+        <Form
+          className="grid gap-2 sm:grid-cols-[1fr_9rem_10rem_auto]"
+          onSubmit={async (v) => {
+            await mutate(() => api.updateTask(task.id, { title: v.title, due_date: opt(v.due_date), assignee_id: optId(v.assignee_id) }));
+            setEditing(false);
+          }}
+        >
+          <Input name="title" required defaultValue={task.title} aria-label="Task title" autoFocus />
+          <Input name="due_date" type="date" defaultValue={task.due_date ?? ""} aria-label="Task due date" />
+          <Select name="assignee_id" options={assigneeOptions} defaultValue={task.assignee_id ?? ""} aria-label="Assignee" />
+          <div className="flex gap-1.5">
+            <SubmitButton small>Save</SubmitButton>
+            <Button type="button" small variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </Form>
+      </li>
+    );
+  return (
+    <li className="flex flex-wrap items-center gap-2 py-2.5">
+      <AutoSubmitSelect
+        value={task.status}
+        options={TASK_STATUSES}
+        label={`Status of ${task.title}`}
+        onChange={(status) => mutate(() => api.updateTask(task.id, { status: status as Task["status"] }))}
+      />
+      <span className={task.status === "done" ? "min-w-0 flex-1 text-sm text-muted line-through" : "min-w-0 flex-1 text-sm"}>{task.title}</span>
+      {task.assignee && <span className="text-xs text-muted">{task.assignee.name}</span>}
+      {task.status !== "done" && <DueBadge date={task.due_date} />}
+      <Button type="button" small variant="ghost" onClick={() => setEditing(true)} aria-label={`Edit ${task.title}`}>
+        Edit
+      </Button>
+      <ConfirmButton onConfirm={() => mutate(() => api.deleteTask(task.id))} />
+    </li>
+  );
+}
+
+const NEW_PM = "__new";
+
+// Project managers shown beside the project name: remove with ×, add from the list or create a new one.
+function ManagerPicker({ projectId, managers }: { projectId: number; managers: { id: number; name: string }[] }) {
+  const mutate = useMutate();
+  const [creating, setCreating] = useState(false);
+  const assign = (personId: number) => mutate(() => api.assignPerson({ project_id: projectId, person_id: personId, role: api.PM_ROLE }));
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {managers.map((m) => (
+        <span key={m.id} className="inline-flex items-center gap-1 rounded-full bg-accent/10 py-1 pr-1 pl-3 text-xs font-medium text-accent-strong">
+          PM · {m.name}
+          <button
+            type="button"
+            aria-label={`Remove ${m.name} as project manager`}
+            className="grid h-5 w-5 place-items-center rounded-full transition hover:bg-accent/15"
+            onClick={() => mutate(() => api.unassignPerson(projectId, m.id))}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {creating ? (
+        <Form
+          className="flex items-center gap-1.5"
+          onSubmit={async (v) => {
+            const { id } = await api.createPerson({ name: v.name, role: api.PM_ROLE, email: null, notes: null });
+            await assign(id);
+            setCreating(false);
+          }}
+        >
+          <Input name="name" required autoFocus placeholder="Project manager's name" aria-label="New project manager" className="w-52 py-1 text-xs" />
+          <SubmitButton small>Add</SubmitButton>
+          <Button type="button" small variant="ghost" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        </Form>
+      ) : (
+        <Load queryKey={["manager-options"]} fn={api.managerOptions} rows={0}>
+          {(all) => {
+            const free = all.filter((x) => !managers.some((m) => m.id === x.id));
+            return (
+              <select
+                value=""
+                aria-label="Add project manager"
+                className="cursor-pointer rounded-full border border-dashed border-line bg-transparent px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-accent"
+                onChange={(e) => (e.target.value === NEW_PM ? setCreating(true) : assign(Number(e.target.value)))}
+              >
+                <option value="">+ Add PM</option>
+                {free.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+                <option value={NEW_PM}>New project manager…</option>
+              </select>
+            );
+          }}
+        </Load>
+      )}
+    </span>
   );
 }
 
