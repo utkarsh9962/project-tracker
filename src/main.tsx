@@ -6,6 +6,7 @@ import "./index.css";
 import { AuthGate } from "./components/auth";
 import { Layout } from "./components/layout";
 import { Dashboard } from "./pages/dashboard";
+import { Milestones } from "./pages/milestones";
 import { NewMenu } from "./pages/new";
 import { NotFound } from "./pages/not-found";
 import { EditPerson, People } from "./pages/people";
@@ -31,6 +32,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="projects/new" element={<NewProject />} />
               <Route path="projects/:id" element={<ProjectDetail />} />
               <Route path="projects/:id/edit" element={<EditProject />} />
+              <Route path="milestones" element={<Milestones />} />
               <Route path="tickets" element={<Tickets />} />
               <Route path="tickets/new" element={<NewTicket />} />
               <Route path="tickets/:id" element={<TicketDetail />} />

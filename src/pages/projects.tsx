@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
-import { formatDate, humanize } from "@/lib/format";
+import { formatDate, humanize, relativeDue } from "@/lib/format";
 import { PROJECT_STATUSES, TASK_STATUSES, type Task } from "@/lib/types";
 import { opt, optId, pct } from "@/lib/values";
 import { AutoSubmitSelect, ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { ProjectForm } from "@/components/forms/project-form";
+import { MilestonesCard } from "@/components/forms/milestones";
 import { ResourcesCard } from "@/components/forms/resources";
 import { Load } from "@/components/query";
 import { Badge, Button, Card, cx, DueBadge, Empty, Input, LinkButton, PageHeader, Progress, Select, useTitle } from "@/components/ui";
@@ -164,7 +165,7 @@ export function ProjectDetail() {
   );
 }
 
-function ProjectBody({ project: p, tasks, team, managers, tickets, resources }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
+function ProjectBody({ project: p, tasks, team, managers, tickets, resources, milestones }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
   useTitle(p.name);
   const mutate = useMutate();
   const doneTasks = tasks.filter((t) => t.status === "done").length;
@@ -184,8 +185,13 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources }: 
       </div>
       <PageHeader
         title={p.name}
-        aside={<ManagerPicker projectId={p.id} managers={managers} />}
-        subtitle={[p.client, p.start_date && `Started ${formatDate(p.start_date)}`, p.due_date && `Due ${formatDate(p.due_date)}`].filter(Boolean).join(" · ")}
+        aside={
+          <>
+            <TargetDate projectId={p.id} date={p.due_date} />
+            <ManagerPicker projectId={p.id} managers={managers} />
+          </>
+        }
+        subtitle={[p.client, p.start_date && `Started ${formatDate(p.start_date)}`].filter(Boolean).join(" · ")}
         actions={
           <LinkButton to={`/projects/${p.id}/edit`} variant="secondary">
             Edit
@@ -217,6 +223,8 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources }: 
             </div>
             {p.description && <p className="mt-4 whitespace-pre-wrap text-sm">{p.description}</p>}
           </Card>
+
+          <MilestonesCard projectId={p.id} milestones={milestones} />
 
           <Card title={`Tasks (${tasks.length - doneTasks} open)`}>
             {tasks.length === 0 ? (
@@ -320,6 +328,51 @@ function TaskRow({ task, assigneeOptions }: { task: Task & { assignee: { name: s
       </Button>
       <ConfirmButton onConfirm={() => mutate(() => api.deleteTask(task.id))} />
     </li>
+  );
+}
+
+// The project's target (due) date beside its name; click to set, change or clear it.
+function TargetDate({ projectId, date }: { projectId: number; date: string | null }) {
+  const mutate = useMutate();
+  const [editing, setEditing] = useState(false);
+  const save = async (due_date: string | null) => {
+    await mutate(() => api.updateProject(projectId, { due_date }));
+    setEditing(false);
+  };
+  if (editing)
+    return (
+      <Form className="flex items-center gap-1.5" onSubmit={(v) => save(opt(v.due_date))}>
+        <Input name="due_date" type="date" required defaultValue={date ?? ""} autoFocus aria-label="Target date" className="w-40 py-1 text-xs" />
+        <SubmitButton small>Save</SubmitButton>
+        {date && (
+          <Button type="button" small variant="ghost" onClick={() => save(null)}>
+            Clear
+          </Button>
+        )}
+        <Button type="button" small variant="ghost" onClick={() => setEditing(false)}>
+          Cancel
+        </Button>
+      </Form>
+    );
+  const due = relativeDue(date);
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      aria-label={date ? `Target date ${formatDate(date)}, change` : "Set target date"}
+      className={cx(
+        "rounded-full px-3 py-1 text-xs font-medium transition",
+        !date
+          ? "border border-dashed border-line text-muted hover:border-accent hover:text-accent"
+          : due?.tone === "overdue"
+            ? "bg-red-50 text-red-700 hover:bg-red-100"
+            : due?.tone === "soon"
+              ? "bg-amber-50 text-amber-700 hover:bg-amber-100"
+              : "bg-hover text-fg hover:bg-line/70",
+      )}
+    >
+      {date ? `Target · ${formatDate(date)}` : "+ Set target date"}
+    </button>
   );
 }
 
