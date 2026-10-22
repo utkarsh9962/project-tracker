@@ -1,25 +1,27 @@
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
 import { formatDate, humanize } from "@/lib/format";
-import { TICKET_STATUSES, type TicketStatus } from "@/lib/types";
+import { PRIORITIES, TICKET_STATUSES, type TicketStatus } from "@/lib/types";
 import { AutoSubmitSelect, ConfirmButton, useMutate } from "@/components/client";
 import { ResourcesCard } from "@/components/forms/resources";
 import { TicketForm } from "@/components/forms/ticket-form";
 import { Load } from "@/components/query";
+import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
 import { Badge, Card, cx, DueBadge, Empty, inputClass, LinkButton, PageHeader, safeHref, useTitle } from "@/components/ui";
 
-const FILTERS = ["active", ...TICKET_STATUSES, "all"] as const;
+const STATUS_OPTIONS = [...TICKET_STATUSES.map((s) => ({ value: s, label: humanize(s) })), { value: "all", label: "Everything" }];
+const PRIORITY_OPTIONS = [...PRIORITIES].reverse().map((p) => ({ value: p, label: humanize(p) }));
+const TICKET_KEYS = ["status", "priority", "client"];
 
 export function Tickets() {
   useTitle("ZST tickets");
-  const [params, setParams] = useSearchParams();
-  const status = params.get("status") ?? "active";
-  const q = params.get("q") ?? "";
+  // Ticket status uses ?status, so the project-status filter is not offered here.
+  const filter = useProjectFilter({ statusKey: "project_status" });
+  const status = filter.get("status");
+  const priority = filter.get("priority");
+  const client = filter.get("client");
+  const q = filter.get("q");
   const mutate = useMutate();
-  const setFilter = (next: { status?: string; q?: string }) => {
-    const merged = { status, q, ...next };
-    setParams(Object.fromEntries(Object.entries(merged).filter(([k, v]) => v && !(k === "status" && v === "active"))), { replace: true });
-  };
 
   return (
     <>
@@ -27,58 +29,66 @@ export function Tickets() {
       <input
         type="search"
         defaultValue={q}
-        onChange={(e) => setFilter({ q: e.target.value })}
-        placeholder="Filter by key, summary or client…"
-        aria-label="Filter tickets"
+        onChange={(e) => filter.set("q", e.target.value)}
+        placeholder="Search by key, summary or client…"
+        aria-label="Search tickets"
         className={cx(inputClass, "mb-3")}
       />
-      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {FILTERS.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setFilter({ status: s })}
-            className={cx(
-              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
-              s === status ? "border-accent bg-accent text-white" : "border-line bg-surface text-muted hover:text-fg",
-            )}
-          >
-            {s === "active" ? "All unresolved" : humanize(s)}
-          </button>
-        ))}
-      </div>
-      <Load queryKey={["tickets", status, q]} fn={() => api.listTickets({ status, q })}>
-        {(rows) =>
-          rows.length === 0 ? (
-            <Empty>No tickets match.</Empty>
-          ) : (
-            <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
-              {rows.map((t) => (
-                <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
-                  <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
-                    <span className="w-20 shrink-0 font-mono text-xs">{t.key}</span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{t.title}</span>
-                      <span className="block truncate text-xs text-muted">{[t.client, t.project?.name].filter(Boolean).join(" · ") || "No client"}</span>
-                    </span>
-                  </Link>
-                  <div className="flex items-center gap-1.5">
-                    <Badge value={t.priority} />
-                    {api.isOpenTicket(t) && <DueBadge date={t.due_date} />}
-                    <AutoSubmitSelect
-                      value={t.status}
-                      options={TICKET_STATUSES}
-                      label={`Status of ${t.key}`}
-                      onChange={(s) => mutate(() => api.updateTicket(t.id, { status: s as TicketStatus }))}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )
-        }
+      <Load queryKey={["tickets", "all"]} fn={() => api.listTickets({ status: "all", q: "" })}>
+        {(all) => {
+          const needle = q.trim().toLowerCase();
+          const clients = [...new Set(all.map((t) => t.client).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b));
+          const rows = all.filter(
+            (t) =>
+              (status === "all" || (status ? t.status === status : api.isOpenTicket(t))) &&
+              (!priority || t.priority === priority) &&
+              (!client || t.client === client) &&
+              filter.keep(t.project_id) &&
+              (!needle || [t.key, t.title, t.client].some((v) => v?.toLowerCase().includes(needle))),
+          );
+          return (
+            <>
+              <ProjectSlicers filter={filter} showStatus={false} extraKeys={TICKET_KEYS}>
+                <Slicer label="Status" value={status} allLabel="All unresolved" options={STATUS_OPTIONS} onChange={(v) => filter.set("status", v)} />
+                <Slicer label="Priority" value={priority} options={PRIORITY_OPTIONS} onChange={(v) => filter.set("priority", v)} />
+                <Slicer label="Client" value={client} options={clients.map((c) => ({ value: c, label: c }))} onChange={(v) => filter.set("client", v)} />
+              </ProjectSlicers>
+              <TicketList rows={rows} mutate={mutate} />
+            </>
+          );
+        }}
       </Load>
     </>
+  );
+}
+
+function TicketList({ rows, mutate }: { rows: Awaited<ReturnType<typeof api.listTickets>>; mutate: ReturnType<typeof useMutate> }) {
+  return rows.length === 0 ? (
+    <Empty>No tickets match.</Empty>
+  ) : (
+    <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
+      {rows.map((t) => (
+        <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
+          <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
+            <span className="w-20 shrink-0 font-mono text-xs">{t.key}</span>
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-medium">{t.title}</span>
+              <span className="block truncate text-xs text-muted">{[t.client, t.project?.name].filter(Boolean).join(" · ") || "No client"}</span>
+            </span>
+          </Link>
+          <div className="flex items-center gap-1.5">
+            <Badge value={t.priority} />
+            {api.isOpenTicket(t) && <DueBadge date={t.due_date} />}
+            <AutoSubmitSelect
+              value={t.status}
+              options={TICKET_STATUSES}
+              label={`Status of ${t.key}`}
+              onChange={(s) => mutate(() => api.updateTicket(t.id, { status: s as TicketStatus }))}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
 

@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
-import type { Assignment, Milestone, Person, Priority, Project, Resource, Task, Ticket } from "./types";
+import { PLATFORM_TAGS, type Assignment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
 // Row types come from src/lib/types.ts rather than generated database types, hence the cast.
@@ -17,16 +17,32 @@ export const isOpenTicket = (t: Pick<Ticket, "status">) => t.status !== "resolve
 
 type WithProject<T> = T & { project: { name: string } | null };
 
+// A project with tasks shows progress from them: a done task counts fully, an in-progress task counts half.
+// Projects without tasks keep the percentage typed in by hand.
+export function taskProgress(project: Pick<Project, "id" | "progress">, tasks: Pick<Task, "project_id" | "status">[]) {
+  const mine = tasks.filter((t) => t.project_id === project.id);
+  if (mine.length === 0) return project.progress;
+  const score = mine.reduce((sum, t) => sum + (t.status === "done" ? 1 : t.status === "in_progress" ? 0.5 : 0), 0);
+  return Math.round((score / mine.length) * 100);
+}
+const withTaskProgress = (projects: Project[], tasks: Pick<Task, "project_id" | "status">[]) =>
+  projects.map((p) => ({ ...p, progress: taskProgress(p, tasks) }));
+
 // ---------- Reads ----------
 
-export async function getDashboard() {
+// `keep` narrows everything to the projects picked in the page's filters (null = no project).
+export async function getDashboard(keep: (projectId: number | null) => boolean = () => true) {
   const now = today();
   const soon = addDays(now, 7);
-  const [projects, tickets, tasks] = await Promise.all([
+  const [allProjects, allTickets, allTasks, taskStates] = await Promise.all([
     run<Project[]>(supabase.from("projects").select("*").neq("status", "done")),
     run<WithProject<Ticket>[]>(supabase.from("tickets").select("*, project:projects(name)").not("status", "in", "(resolved,closed)")),
     run<WithProject<Task>[]>(supabase.from("tasks").select("*, project:projects(name)").neq("status", "done").not("due_date", "is", null).lte("due_date", soon)),
+    run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status")),
   ]);
+  const projects = withTaskProgress(allProjects.filter((p) => keep(p.id)), taskStates);
+  const tickets = allTickets.filter((t) => keep(t.project_id));
+  const tasks = allTasks.filter((t) => keep(t.project_id));
 
   const activeProjects = projects.filter((p) => p.status === "active" || p.status === "planning").sort((a, b) => byDue(a, b) || byPriority(a, b));
   const openTickets = [...tickets].sort((a, b) => byPriority(a, b) || byDue(a, b) || b.updated_at.localeCompare(a.updated_at));
@@ -52,12 +68,10 @@ export async function getDashboard() {
 
 const STATUS_ORDER = { active: 0, planning: 1, on_hold: 2, done: 3 } as const;
 
-export async function listProjects(status: string) {
-  let q = supabase.from("projects").select("*");
-  if (status !== "all") q = q.eq("status", status);
+export async function listProjects() {
   const [projects, tasks, tickets, managers] = await Promise.all([
-    run<Project[]>(q),
-    run<Pick<Task, "project_id">[]>(supabase.from("tasks").select("project_id").neq("status", "done")),
+    run<Project[]>(supabase.from("projects").select("*")),
+    run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status")),
     run<Pick<Ticket, "project_id">[]>(supabase.from("tickets").select("project_id").not("status", "in", "(resolved,closed)")),
     run<{ project_id: number; person: Pick<Person, "id" | "name"> }[]>(
       supabase.from("project_people").select("project_id, person:people(id, name)").eq("role", PM_ROLE),
@@ -66,8 +80,8 @@ export async function listProjects(status: string) {
   return projects
     .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byDue(a, b))
     .map((project) => ({
-      project,
-      openTasks: tasks.filter((t) => t.project_id === project.id).length,
+      project: { ...project, progress: taskProgress(project, tasks) },
+      openTasks: tasks.filter((t) => t.project_id === project.id && t.status !== "done").length,
       openTickets: tickets.filter((t) => t.project_id === project.id).length,
       managers: managers.filter((m) => m.project_id === project.id).map((m) => m.person),
     }));
@@ -89,7 +103,7 @@ export async function getProject(id: number) {
     run<Milestone[]>(supabase.from("milestones").select("*").eq("project_id", id).order("id")),
   ]);
   return {
-    project,
+    project: { ...project, progress: taskProgress(project, tasks) },
     tasks: tasks.sort((a, b) => TASK_ORDER[a.status] - TASK_ORDER[b.status] || byDue(a, b)),
     team: team.filter((m) => m.role !== PM_ROLE).sort((a, b) => a.person.name.localeCompare(b.person.name)),
     managers: team.filter((m) => m.role === PM_ROLE).map((m) => m.person).sort((a, b) => a.name.localeCompare(b.name)),
@@ -145,6 +159,24 @@ export async function listPeople() {
   }));
 }
 
+// What every page's filters need: each project's status, platform tags and PMs.
+export async function projectFacets() {
+  const [projects, pms] = await Promise.all([
+    run<Pick<Project, "id" | "name" | "status" | "tags">[]>(supabase.from("projects").select("id, name, status, tags").order("name")),
+    run<{ project_id: number; person: Pick<Person, "id" | "name"> }[]>(supabase.from("project_people").select("project_id, person:people(id, name)").eq("role", PM_ROLE)),
+  ]);
+  const managers = new Map<number, string>();
+  for (const m of pms) managers.set(m.person.id, m.person.name);
+  const tags = new Set<string>(PLATFORM_TAGS);
+  for (const p of projects) for (const t of p.tags ?? []) tags.add(t);
+  return {
+    projects: projects.map((p) => ({ ...p, tags: p.tags ?? [], pmIds: pms.filter((m) => m.project_id === p.id).map((m) => m.person.id) })),
+    managers: [...managers].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+    tags: [...tags].sort((a, b) => a.localeCompare(b)),
+  };
+}
+export type ProjectFacets = Awaited<ReturnType<typeof projectFacets>>;
+
 export const getPerson = (id: number) => run<Person | null>(supabase.from("people").select("*").eq("id", id).maybeSingle());
 export const projectOptions = () => run<Pick<Project, "id" | "name">[]>(supabase.from("projects").select("id, name").order("name"));
 export const managerOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").eq("role", PM_ROLE).order("name"));
@@ -172,13 +204,13 @@ export async function search(q: string) {
 
 // ---------- Writes ----------
 
-export type ProjectInput = Omit<Project, "id">;
+export type ProjectInput = Omit<Project, "id" | "tags">;
 export type TicketInput = Omit<Ticket, "id" | "updated_at">;
 export type PersonInput = Omit<Person, "id">;
 export type ResourceInput = Omit<Resource, "id" | "created_at">;
 
 export const createProject = (v: ProjectInput) => run<{ id: number }>(supabase.from("projects").insert(v).select("id").single());
-export const updateProject = (id: number, v: Partial<ProjectInput>) => run(supabase.from("projects").update(v).eq("id", id));
+export const updateProject = (id: number, v: Partial<Omit<Project, "id">>) => run(supabase.from("projects").update(v).eq("id", id));
 export const deleteProject = (id: number) => run(supabase.from("projects").delete().eq("id", id));
 
 export const createTask = (v: Omit<Task, "id" | "status">) => run(supabase.from("tasks").insert(v));

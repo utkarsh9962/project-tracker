@@ -2,6 +2,8 @@ export const PROJECT_STATUSES = ["planning", "active", "on_hold", "done"] as con
 export const PRIORITIES = ["low", "medium", "high", "critical", "blocker"] as const;
 export const TASK_STATUSES = ["todo", "in_progress", "done"] as const;
 export const TICKET_STATUSES = ["open", "in_progress", "waiting", "resolved", "closed"] as const;
+// Suggested platform tags; any other tag can be typed in.
+export const PLATFORM_TAGS = [".NET", "Mobile", "WEB", "CMS"] as const;
 export const RESOURCE_KINDS = ["link", "doc", "sheet", "pdf", "slack", "email", "jira", "note", "other"] as const;
 
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
@@ -22,6 +24,7 @@ export type Project = {
   progress: number;
   start_date: string | null;
   due_date: string | null;
+  tags: string[];
 };
 export type Task = { id: number; project_id: number; title: string; status: TaskStatus; due_date: string | null; assignee_id: number | null };
 export type Ticket = {

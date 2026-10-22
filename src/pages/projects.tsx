@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import * as api from "@/lib/api";
 import { formatDate, humanize, relativeDue } from "@/lib/format";
 import { PROJECT_STATUSES, TASK_STATUSES, type Task } from "@/lib/types";
@@ -9,64 +9,24 @@ import { ProjectForm } from "@/components/forms/project-form";
 import { MilestonesCard } from "@/components/forms/milestones";
 import { ResourcesCard } from "@/components/forms/resources";
 import { Load } from "@/components/query";
+import { ProjectSlicers, useProjectFilter } from "@/components/slicers";
 import { Badge, Button, Card, cx, DueBadge, Empty, Input, LinkButton, PageHeader, Progress, Select, useTitle } from "@/components/ui";
 
 export function Projects() {
   useTitle("Projects");
-  const [params] = useSearchParams();
-  const status = params.get("status") ?? "all";
-  const pm = Number(params.get("pm")) || null;
-  const link = (next: { status?: string; pm?: number | null }) => {
-    const q = new URLSearchParams();
-    const s = next.status ?? status;
-    const m = next.pm === undefined ? pm : next.pm;
-    if (s !== "all") q.set("status", s);
-    if (m) q.set("pm", String(m));
-    return q.size ? `/projects?${q}` : "/projects";
-  };
+  const filter = useProjectFilter();
   return (
     <>
       <PageHeader title="Projects" actions={<LinkButton to="/projects/new">New project</LinkButton>} />
-      <div className="-mx-4 mb-4 flex gap-2 overflow-x-auto px-4 pb-1">
-        {["all", ...PROJECT_STATUSES].map((s) => (
-          <Link
-            key={s}
-            to={link({ status: s })}
-            className={cx(
-              "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
-              s === status ? "border-accent bg-accent text-white" : "border-line bg-surface text-muted hover:text-fg",
-            )}
-          >
-            {humanize(s)}
-          </Link>
-        ))}
-      </div>
-      <Load queryKey={["manager-options"]} fn={api.managerOptions} rows={0}>
-        {(managers) =>
-          managers.length > 0 && (
-            <div className="-mx-4 -mt-2 mb-4 flex items-center gap-2 overflow-x-auto px-4 pb-1">
-              <span className="shrink-0 text-xs text-muted">PM</span>
-              {[{ id: 0, name: "Anyone" }, ...managers].map((m) => (
-                <Link
-                  key={m.id}
-                  to={link({ pm: m.id || null })}
-                  className={cx(
-                    "shrink-0 rounded-full border px-3 py-1 text-xs font-medium transition-colors duration-200",
-                    (pm ?? 0) === m.id ? "border-accent-strong bg-accent/10 text-accent-strong" : "border-line bg-surface text-muted hover:text-fg",
-                  )}
-                >
-                  {m.name}
-                </Link>
-              ))}
-            </div>
-          )
-        }
-      </Load>
-      <Load queryKey={["projects", status]} fn={() => api.listProjects(status)}>
+      <ProjectSlicers filter={filter} />
+      <Load queryKey={["projects"]} fn={api.listProjects}>
         {(all) => {
-          const rows = pm ? all.filter((r) => r.managers.some((m) => m.id === pm)) : all;
+          const rows = all.filter(
+            ({ project: p, managers }) =>
+              (!filter.status || p.status === filter.status) && (!filter.pm || managers.some((m) => m.id === filter.pm)) && (!filter.tag || p.tags.includes(filter.tag)),
+          );
           return rows.length === 0 ? (
-            <Empty>No projects{status !== "all" ? ` with status “${humanize(status)}”` : ""}{pm ? " for this PM" : ""} yet.</Empty>
+            <Empty>{filter.active ? "No projects match these filters." : "No projects yet."}</Empty>
           ) : (
             <ul className="stagger grid grid-cols-1 gap-3 md:grid-cols-2">
               {rows.map(({ project: p, openTasks, openTickets, managers }) => (
@@ -86,6 +46,9 @@ export function Projects() {
                     <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                       <Badge value={p.priority} />
                       <DueBadge date={p.due_date} />
+                      {p.tags.map((t) => (
+                        <TagBadge key={t} tag={t} />
+                      ))}
                       <span className="ml-auto">
                         {openTasks} open task{openTasks === 1 ? "" : "s"} · {openTickets} ZST{openTickets === 1 ? "" : "s"}
                       </span>
@@ -169,6 +132,7 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
   useTitle(p.name);
   const mutate = useMutate();
   const doneTasks = tasks.filter((t) => t.status === "done").length;
+  const inProgressTasks = tasks.filter((t) => t.status === "in_progress").length;
   const assignees = new Map<number, string>(team.map((m) => [m.person.id, m.person.name]));
   for (const t of tasks) if (t.assignee_id && t.assignee) assignees.set(t.assignee_id, t.assignee.name);
   const assigneeOptions = [
@@ -189,6 +153,7 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
           <>
             <TargetDate projectId={p.id} date={p.due_date} />
             <ManagerPicker projectId={p.id} managers={managers} />
+            <TagPicker projectId={p.id} tags={p.tags} />
           </>
         }
         subtitle={[p.client, p.start_date && `Started ${formatDate(p.start_date)}`].filter(Boolean).join(" · ")}
@@ -209,17 +174,19 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
             </div>
             <div className="mt-4">
               <Progress value={p.progress} />
-              <Form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(v) => mutate(() => api.updateProject(p.id, { progress: pct(v.progress) }))}>
-                <Input key={p.progress} name="progress" type="number" min={0} max={100} defaultValue={p.progress} aria-label="Progress percent" className="w-24 py-1" />
-                <SubmitButton small variant="secondary">
-                  Update progress
-                </SubmitButton>
-                {tasks.length > 0 && (
-                  <span className="text-xs text-muted">
-                    {doneTasks}/{tasks.length} tasks done
-                  </span>
-                )}
-              </Form>
+              {tasks.length > 0 ? (
+                <p className="mt-2 text-xs text-muted">
+                  {doneTasks} done{inProgressTasks ? `, ${inProgressTasks} in progress` : ""} of {tasks.length} tasks. Progress updates as task statuses change.
+                </p>
+              ) : (
+                <Form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(v) => mutate(() => api.updateProject(p.id, { progress: pct(v.progress) }))}>
+                  <Input key={p.progress} name="progress" type="number" min={0} max={100} defaultValue={p.progress} aria-label="Progress percent" className="w-24 py-1" />
+                  <SubmitButton small variant="secondary">
+                    Update progress
+                  </SubmitButton>
+                  <span className="text-xs text-muted">Add tasks and progress will follow them.</span>
+                </Form>
+              )}
             </div>
             {p.description && <p className="mt-4 whitespace-pre-wrap text-sm">{p.description}</p>}
           </Card>
@@ -373,6 +340,73 @@ function TargetDate({ projectId, date }: { projectId: number; date: string | nul
     >
       {date ? `Target · ${formatDate(date)}` : "+ Set target date"}
     </button>
+  );
+}
+
+export function TagBadge({ tag }: { tag: string }) {
+  return <span className="inline-flex shrink-0 items-center rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700">{tag}</span>;
+}
+
+const NEW_TAG = "__new";
+
+// Platform tags beside the project name: remove with ×, add a suggested or existing tag, or type a new one.
+function TagPicker({ projectId, tags }: { projectId: number; tags: string[] }) {
+  const mutate = useMutate();
+  const [creating, setCreating] = useState(false);
+  const save = (next: string[]) => mutate(() => api.updateProject(projectId, { tags: next }));
+  const add = (tag: string) => (tag && !tags.includes(tag) ? save([...tags, tag]) : Promise.resolve());
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {tags.map((t) => (
+        <span key={t} className="inline-flex items-center gap-1 rounded-full bg-violet-50 py-1 pr-1 pl-3 text-xs font-medium text-violet-700">
+          {t}
+          <button
+            type="button"
+            aria-label={`Remove tag ${t}`}
+            className="grid h-5 w-5 place-items-center rounded-full transition hover:bg-violet-100"
+            onClick={() => save(tags.filter((x) => x !== t))}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {creating ? (
+        <Form
+          className="flex items-center gap-1.5"
+          onSubmit={async (v) => {
+            await add(v.tag);
+            setCreating(false);
+          }}
+        >
+          <Input name="tag" required autoFocus maxLength={30} placeholder="Tag, e.g. API" aria-label="New platform tag" className="w-36 py-1 text-xs" />
+          <SubmitButton small>Add</SubmitButton>
+          <Button type="button" small variant="ghost" onClick={() => setCreating(false)}>
+            Cancel
+          </Button>
+        </Form>
+      ) : (
+        <Load queryKey={["facets"]} fn={api.projectFacets} rows={0}>
+          {({ tags: known }) => (
+            <select
+              value=""
+              aria-label="Add platform tag"
+              className="cursor-pointer rounded-full border border-dashed border-line bg-transparent px-3 py-1 text-xs text-muted transition hover:border-violet-400 hover:text-violet-700"
+              onChange={(e) => (e.target.value === NEW_TAG ? setCreating(true) : add(e.target.value))}
+            >
+              <option value="">+ Add tag</option>
+              {known
+                .filter((t) => !tags.includes(t))
+                .map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              <option value={NEW_TAG}>New tag…</option>
+            </select>
+          )}
+        </Load>
+      )}
+    </span>
   );
 }
 

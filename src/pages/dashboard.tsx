@@ -1,16 +1,23 @@
 import { Link } from "react-router";
 import { Load } from "@/components/query";
-import { Badge, Card, DueBadge, Empty, LinkButton, PageHeader, Progress, useTitle } from "@/components/ui";
+import { ProjectSlicers, useProjectFilter } from "@/components/slicers";
+import { Badge, Card, DueBadge, Empty, LinkButton, ListSkeleton, PageHeader, Progress, useTitle } from "@/components/ui";
 import { getDashboard } from "@/lib/api";
 
 export function Dashboard() {
   useTitle("");
+  const filter = useProjectFilter();
   return (
     <>
       <PageHeader title="Dashboard" subtitle="What needs your attention across projects and ZSTs." />
-      <Load queryKey={["dashboard"]} fn={getDashboard} rows={6}>
-        {(data) => <DashboardBody {...data} />}
-      </Load>
+      <ProjectSlicers filter={filter} />
+      {filter.ready ? (
+        <Load queryKey={["dashboard", ...filter.key]} fn={() => getDashboard(filter.keep)} rows={6}>
+          {(data) => <DashboardBody {...data} />}
+        </Load>
+      ) : (
+        <ListSkeleton rows={6} />
+      )}
     </>
   );
 }
