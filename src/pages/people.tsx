@@ -3,19 +3,38 @@ import * as api from "@/lib/api";
 import { opt } from "@/lib/values";
 import { ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { Load } from "@/components/query";
+import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
 import { Badge, Card, Empty, Field, Input, LinkButton, PageHeader, Textarea, useTitle } from "@/components/ui";
 
 export function People() {
   useTitle("People");
+  const filter = useProjectFilter();
+  const project = Number(filter.get("project")) || 0;
   const mutate = useMutate();
   return (
     <>
       <PageHeader title="People" subtitle="Who is working on what." />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
+          <ProjectSlicers filter={filter} statusLabel="Project status" extraKeys={["project"]}>
+            <Slicer
+              label="Project"
+              value={project}
+              options={(filter.facets?.projects ?? []).map((p) => ({ value: String(p.id), label: p.name }))}
+              onChange={(v) => filter.set("project", v)}
+            />
+          </ProjectSlicers>
           <Load queryKey={["people"]} fn={api.listPeople}>
-            {(rows) =>
-              rows.length === 0 ? (
+            {(all) => {
+              const filtering = filter.active || Boolean(project);
+              // While filtering, list only the people on matching projects, and only those projects.
+              const rows = filtering
+                ? all
+                    .map((r) => ({ ...r, projects: r.projects.filter((a) => filter.keep(a.project_id) && (!project || a.project_id === project)) }))
+                    .filter((r) => r.projects.length > 0)
+                : all;
+              if (filtering && rows.length === 0) return <Empty>No one is on a project matching these filters.</Empty>;
+              return rows.length === 0 ? (
                 <Empty>No people yet. Add the people you work with, then assign them from a project page.</Empty>
               ) : (
                 <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -52,8 +71,8 @@ export function People() {
                     );
                   })}
                 </ul>
-              )
-            }
+              );
+            }}
           </Load>
         </div>
         <Card title="Add a person" className="h-fit">
