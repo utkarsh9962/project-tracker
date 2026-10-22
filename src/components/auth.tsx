@@ -76,8 +76,9 @@ function Setup() {
   return (
     <Shell>
       <p className="text-sm text-muted">
-        This build isn’t connected to a database yet. Set <code className="font-mono">VITE_SUPABASE_URL</code> and{" "}
-        <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> (see the README), then rebuild.
+        This build isn’t connected to a database yet. In the GitHub repo, open Settings › Secrets and variables › Actions › Variables and set{" "}
+        <code className="font-mono">VITE_SUPABASE_URL</code> to your Supabase Project URL (https://….supabase.co) and{" "}
+        <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> to its publishable key, then run the deploy workflow again.
       </p>
     </Shell>
   );

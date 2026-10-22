@@ -27,9 +27,12 @@ Not yet: JIRA sync, Slack/email capture, spreadsheet import, file uploads, shari
 
 ### 2. GitHub Pages (the website)
 
-1. In this repo, open **Settings > Secrets and variables > Actions > Variables** and add two repository variables:
-   - `VITE_SUPABASE_URL`: the Project URL
-   - `VITE_SUPABASE_ANON_KEY`: the publishable/anon key
+1. In this repo, open **Settings > Secrets and variables > Actions > Variables** and add two repository variables (the left column is the **Name**, the right is the **Value**):
+
+   | Name | Value |
+   | --- | --- |
+   | `VITE_SUPABASE_URL` | your Project URL, e.g. `https://abcd1234.supabase.co` |
+   | `VITE_SUPABASE_ANON_KEY` | your publishable key (`sb_publishable_…`) or legacy `anon` key (`eyJ…`) |
 2. Open **Settings > Pages** and set **Source** to **GitHub Actions**.
 3. Open **Actions > Deploy to GitHub Pages > Run workflow** (it also runs on every push to `main`).
 
