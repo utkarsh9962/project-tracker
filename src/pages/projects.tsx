@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import * as api from "@/lib/api";
 import { formatDate, humanize, relativeDue } from "@/lib/format";
-import { PROJECT_STATUSES, TASK_STATUSES, type Task } from "@/lib/types";
+import { TASK_STATUSES, TICKET_TYPES, type Task } from "@/lib/types";
 import { opt, optId, pct } from "@/lib/values";
 import { AutoSubmitSelect, ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { ProjectForm } from "@/components/forms/project-form";
@@ -10,7 +10,7 @@ import { MilestonesCard } from "@/components/forms/milestones";
 import { ResourcesCard } from "@/components/forms/resources";
 import { Load } from "@/components/query";
 import { ProjectSlicers, useProjectFilter } from "@/components/slicers";
-import { Badge, Button, Card, cx, DueBadge, Empty, Input, LinkButton, PageHeader, Progress, Select, useTitle } from "@/components/ui";
+import { Badge, Button, Card, cx, DateChip, DueBadge, Empty, Input, LinkButton, PageHeader, Progress, Select, StatusBadge, useTitle } from "@/components/ui";
 
 export function Projects() {
   useTitle("Projects");
@@ -34,23 +34,26 @@ export function Projects() {
                   <Link to={`/projects/${p.id}`} className="block rounded-2xl border border-line/80 bg-surface p-5 shadow-xs transition duration-200 ease-(--ease-out) hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-900/5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="truncate font-medium">{p.name}</div>
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate font-medium">{p.name}</span>
+                          <DateChip date={p.due_date} done={p.status === "done"} />
+                        </div>
                         {p.client && <div className="truncate text-sm text-muted">{p.client}</div>}
                         {managers.length > 0 && <div className="truncate text-xs text-accent-strong">PM · {managers.map((m) => m.name).join(", ")}</div>}
                       </div>
-                      <Badge value={p.status} />
+                      <StatusBadge status={p.status} />
                     </div>
                     <div className="mt-3">
                       <Progress value={p.progress} />
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                       <Badge value={p.priority} />
-                      <DueBadge date={p.due_date} />
+                      {p.status !== "done" && relativeDue(p.due_date)?.tone !== "later" && <DueBadge date={p.due_date} />}
                       {p.tags.map((t) => (
                         <TagBadge key={t} tag={t} />
                       ))}
                       <span className="ml-auto">
-                        {openTasks} open task{openTasks === 1 ? "" : "s"} · {openTickets} ZST{openTickets === 1 ? "" : "s"}
+                        {openTasks} open task{openTasks === 1 ? "" : "s"} · {openTickets} ticket{openTickets === 1 ? "" : "s"}
                       </span>
                     </div>
                   </Link>
@@ -131,10 +134,11 @@ export function ProjectDetail() {
 function ProjectBody({ project: p, tasks, team, managers, tickets, resources, milestones }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
   useTitle(p.name);
   const mutate = useMutate();
-  const doneTasks = tasks.filter((t) => t.status === "done").length;
-  const inProgressTasks = tasks.filter((t) => t.status === "in_progress").length;
+  // Each entry is one task, possibly given to several people.
+  const doneTasks = tasks.filter((g) => g[0].status === "done").length;
+  const inProgressTasks = tasks.filter((g) => g[0].status === "in_progress").length;
   const assignees = new Map<number, string>(team.map((m) => [m.person.id, m.person.name]));
-  for (const t of tasks) if (t.assignee_id && t.assignee) assignees.set(t.assignee_id, t.assignee.name);
+  for (const t of tasks.flat()) if (t.assignee_id && t.assignee) assignees.set(t.assignee_id, t.assignee.name);
   const assigneeOptions = [
     { value: "", label: "Unassigned" },
     ...[...assignees].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label })),
@@ -168,7 +172,7 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
         <div className="min-w-0 space-y-5 lg:col-span-2">
           <Card>
             <div className="flex flex-wrap items-center gap-2">
-              <Badge value={p.status} />
+              <StatusBadge status={p.status} />
               <Badge value={p.priority} label={`${humanize(p.priority)} priority`} />
               <DueBadge date={p.due_date} />
             </div>
@@ -179,7 +183,7 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
                   {doneTasks} done{inProgressTasks ? `, ${inProgressTasks} in progress` : ""} of {tasks.length} tasks. Progress updates as task statuses change.
                 </p>
               ) : (
-                <Form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(v) => mutate(() => api.updateProject(p.id, { progress: pct(v.progress) }))}>
+                <Form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={(v) => mutate(() => api.setProgress(p.id, pct(v.progress)))}>
                   <Input key={p.progress} name="progress" type="number" min={0} max={100} defaultValue={p.progress} aria-label="Progress percent" className="w-24 py-1" />
                   <SubmitButton small variant="secondary">
                     Update progress
@@ -198,15 +202,15 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
               <Empty>No tasks yet.</Empty>
             ) : (
               <ul className="stagger divide-y divide-line/70">
-                {tasks.map((task) => (
-                  <TaskRow key={task.id} task={task} assigneeOptions={assigneeOptions} />
+                {tasks.map((group) => (
+                  <TaskRow key={group[0].id} group={group} assigneeOptions={assigneeOptions} />
                 ))}
               </ul>
             )}
             <Form
               reset
               className="mt-3 grid gap-2 border-t border-line pt-3 sm:grid-cols-[1fr_9rem_9rem_auto]"
-              onSubmit={(v) => mutate(() => api.createTask({ project_id: p.id, title: v.title, due_date: opt(v.due_date), assignee_id: optId(v.assignee_id) }))}
+              onSubmit={(v) => mutate(() => api.createTasks([{ project_id: p.id, title: v.title, due_date: opt(v.due_date), assignee_id: optId(v.assignee_id) }]))}
             >
               <Input name="title" required placeholder="New task" aria-label="Task title" />
               <Input name="due_date" type="date" aria-label="Task due date" />
@@ -216,10 +220,10 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
           </Card>
 
           <Card
-            title="ZST tickets"
+            title="Tickets"
             actions={
               <Link to={`/tickets/new?project=${p.id}`} className="text-xs text-accent">
-                + New ZST
+                + New ticket
               </Link>
             }
           >
@@ -230,7 +234,7 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
                 {tickets.map((t) => (
                   <li key={t.id}>
                     <Link to={`/tickets/${t.id}`} className="flex items-center gap-3 py-2.5 hover:opacity-80">
-                      <span className="w-20 shrink-0 font-mono text-xs">{t.key}</span>
+                      <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
                       <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
                       <Badge value={t.priority} />
                       <Badge value={t.status} />
@@ -239,6 +243,7 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
                 ))}
               </ul>
             )}
+            <LinkTicketForm projectId={p.id} />
           </Card>
         </div>
 
@@ -253,29 +258,60 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
 
 type AssigneeOption = { value: string | number; label: string };
 
-// One task line; Edit swaps it for an inline form to change the title, date and assignee.
-function TaskRow({ task, assigneeOptions }: { task: Task & { assignee: { name: string } | null }; assigneeOptions: AssigneeOption[] }) {
+type TaskWithAssignee = Task & { assignee: { name: string } | null };
+
+// One task line, listing everyone it is assigned to. Status, edits and delete apply to all of them.
+// Edit swaps it for an inline form to change the title, date and who it is assigned to.
+function TaskRow({ group, assigneeOptions }: { group: TaskWithAssignee[]; assigneeOptions: AssigneeOption[] }) {
   const mutate = useMutate();
   const [editing, setEditing] = useState(false);
+  const task = group[0];
+  const ids = group.map((t) => t.id);
+  const names = group.flatMap((t) => (t.assignee ? [t.assignee.name] : []));
   if (editing)
     return (
       <li className="py-2.5">
         <Form
-          className="grid gap-2 sm:grid-cols-[1fr_9rem_10rem_auto]"
+          className="grid gap-2 sm:grid-cols-[1fr_9rem_auto]"
           onSubmit={async (v) => {
-            await mutate(() => api.updateTask(task.id, { title: v.title, due_date: opt(v.due_date), assignee_id: optId(v.assignee_id) }));
+            const chosen = Object.keys(v).flatMap((k) => (k.startsWith("assignee_") ? [Number(k.slice(9))] : []));
+            const targets: (number | null)[] = chosen.length ? chosen : [null];
+            const fields = { title: v.title, due_date: opt(v.due_date) };
+            const keep = group.filter((t) => targets.includes(t.assignee_id));
+            const spare = group.filter((t) => !keep.includes(t));
+            const missing = targets.filter((a) => !keep.some((t) => t.assignee_id === a));
+            // Rows losing their person go to newly picked people first; then add rows or delete what's left.
+            const reused = spare.splice(0, missing.length).map((t, i) => ({ ...t, assignee_id: missing[i] }));
+            await mutate(async () => {
+              for (const t of [...keep, ...reused]) await api.updateTasks([t.id], { ...fields, assignee_id: t.assignee_id });
+              await api.createTasks(missing.slice(reused.length).map((assignee_id) => ({ project_id: task.project_id, status: task.status, assignee_id, ...fields })));
+              if (spare.length) await api.deleteTasks(spare.map((t) => t.id));
+            });
             setEditing(false);
           }}
         >
           <Input name="title" required defaultValue={task.title} aria-label="Task title" autoFocus />
           <Input name="due_date" type="date" defaultValue={task.due_date ?? ""} aria-label="Task due date" />
-          <Select name="assignee_id" options={assigneeOptions} defaultValue={task.assignee_id ?? ""} aria-label="Assignee" />
           <div className="flex gap-1.5">
             <SubmitButton small>Save</SubmitButton>
             <Button type="button" small variant="ghost" onClick={() => setEditing(false)}>
               Cancel
             </Button>
           </div>
+          <fieldset className="flex flex-wrap gap-1.5 sm:col-span-3">
+            <legend className="mb-1 text-xs font-medium text-muted">Assigned to</legend>
+            {assigneeOptions
+              .filter((o) => o.value !== "")
+              .map((o) => (
+                <label
+                  key={o.value}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs transition has-checked:border-accent/40 has-checked:bg-accent/10 has-checked:text-accent-strong"
+                >
+                  <input type="checkbox" name={`assignee_${o.value}`} defaultChecked={group.some((t) => t.assignee_id === Number(o.value))} className="accent-accent" />
+                  {o.label}
+                </label>
+              ))}
+          </fieldset>
         </Form>
       </li>
     );
@@ -285,16 +321,37 @@ function TaskRow({ task, assigneeOptions }: { task: Task & { assignee: { name: s
         value={task.status}
         options={TASK_STATUSES}
         label={`Status of ${task.title}`}
-        onChange={(status) => mutate(() => api.updateTask(task.id, { status: status as Task["status"] }))}
+        onChange={(status) => mutate(() => api.updateTasks(ids, { status: status as Task["status"] }))}
       />
       <span className={task.status === "done" ? "min-w-0 flex-1 text-sm text-muted line-through" : "min-w-0 flex-1 text-sm"}>{task.title}</span>
-      {task.assignee && <span className="text-xs text-muted">{task.assignee.name}</span>}
+      {names.length > 0 && <span className="text-xs text-muted">{names.join(", ")}</span>}
       {task.status !== "done" && <DueBadge date={task.due_date} />}
       <Button type="button" small variant="ghost" onClick={() => setEditing(true)} aria-label={`Edit ${task.title}`}>
         Edit
       </Button>
-      <ConfirmButton onConfirm={() => mutate(() => api.deleteTask(task.id))} />
+      <ConfirmButton onConfirm={() => mutate(() => api.deleteTasks(ids))} />
     </li>
+  );
+}
+
+// Link a ticket of any type by its key; a key that isn't tracked yet is created with the summary given.
+function LinkTicketForm({ projectId }: { projectId: number }) {
+  const mutate = useMutate();
+  return (
+    <Form
+      reset
+      className="mt-3 grid gap-2 border-t border-line pt-3 sm:grid-cols-[6.5rem_7rem_1fr_auto]"
+      onSubmit={(v) => {
+        const n = v.number.toUpperCase().replace(/\s+/g, "");
+        const key = n.includes("-") ? n : `${v.type}-${n}`;
+        return mutate(() => api.linkTicket(projectId, key, v.title));
+      }}
+    >
+      <Select name="type" options={TICKET_TYPES.map((t) => ({ value: t, label: t }))} aria-label="Ticket type" />
+      <Input name="number" required placeholder="1234" aria-label="Ticket number" className="font-mono" />
+      <Input name="title" placeholder="Summary (for a new ticket)" aria-label="Ticket summary" />
+      <SubmitButton small>Link ticket</SubmitButton>
+    </Form>
   );
 }
 

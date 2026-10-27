@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import * as api from "@/lib/api";
-import { humanize } from "@/lib/format";
+import { projectStatusLabel } from "@/lib/format";
 import { PROJECT_STATUSES } from "@/lib/types";
 import { cx } from "./ui";
 
@@ -109,7 +109,7 @@ export function ProjectSlicers({
     <SlicerBar active={filter.active || extraActive} onClear={() => filter.clear([filter.statusKey, "pm", "tag", ...extraKeys])}>
       {children}
       {showStatus && (
-        <Slicer label={statusLabel} value={filter.status} options={PROJECT_STATUSES.map((s) => ({ value: s, label: humanize(s) }))} onChange={(v) => filter.set(filter.statusKey, v)} />
+        <Slicer label={statusLabel} value={filter.status} options={PROJECT_STATUSES.map((s) => ({ value: s, label: projectStatusLabel(s) }))} onChange={(v) => filter.set(filter.statusKey, v)} />
       )}
       <Slicer label="PM" value={filter.pm} options={(facets?.managers ?? []).map((m) => ({ value: String(m.id), label: m.name }))} onChange={(v) => filter.set("pm", v)} />
       <Slicer label="Platform" value={filter.tag} options={(facets?.tags ?? []).map((t) => ({ value: t, label: t }))} onChange={(v) => filter.set("tag", v)} />

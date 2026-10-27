@@ -30,6 +30,11 @@ export function humanize(value: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// A finished project reads as "Completed"; tasks keep "Done".
+export function projectStatusLabel(status: string): string {
+  return status === "done" ? "Completed" : humanize(status);
+}
+
 const LINK_SCHEMES = ["http:", "https:", "mailto:", "slack:"];
 
 // Turns user input into a safe link: bare domains get https://, anything else non-web is rejected.

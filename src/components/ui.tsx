@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { twMerge } from "tailwind-merge";
 import { useEffect, type ComponentProps, type ReactNode } from "react";
-import { humanize, relativeDue } from "@/lib/format";
+import { formatDate, humanize, projectStatusLabel, relativeDue } from "@/lib/format";
 
 // twMerge lets a later class (e.g. w-24) override a default one (w-full).
 export function cx(...classes: (string | false | null | undefined)[]) {
@@ -65,6 +65,21 @@ export function Badge({ value, label }: { value: string; label?: string }) {
   return (
     <span className={cx("inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium", TONES[value] ?? TONES.low)}>
       {label ?? humanize(value)}
+    </span>
+  );
+}
+
+export function StatusBadge({ status }: { status: string }) {
+  return <Badge value={status} label={projectStatusLabel(status)} />;
+}
+
+// A date as a chip, coloured when it is overdue or close. Muted once the work is finished.
+export function DateChip({ date, done = false }: { date: string | null | undefined; done?: boolean }) {
+  const due = relativeDue(date);
+  if (!date || !due) return null;
+  return (
+    <span title={due.label} className={cx("inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums", TONES[done ? "later" : due.tone])}>
+      {formatDate(date)}
     </span>
   );
 }

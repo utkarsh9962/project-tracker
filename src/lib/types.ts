@@ -4,6 +4,9 @@ export const TASK_STATUSES = ["todo", "in_progress", "done"] as const;
 export const TICKET_STATUSES = ["open", "in_progress", "waiting", "resolved", "closed"] as const;
 // Suggested platform tags; any other tag can be typed in.
 export const PLATFORM_TAGS = [".NET", "Mobile", "WEB", "CMS"] as const;
+// Jira projects whose tickets can be linked to a project. The type is the key's prefix (NET-123 is a NET ticket).
+export const TICKET_TYPES = ["ZST", "NET", "WP", "MOB", "CCMS", "CMS"] as const;
+export const ticketType = (key: string) => key.split("-")[0].toUpperCase();
 export const RESOURCE_KINDS = ["link", "doc", "sheet", "pdf", "slack", "email", "jira", "note", "other"] as const;
 
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];

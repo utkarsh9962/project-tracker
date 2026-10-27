@@ -25,8 +25,12 @@ export function taskProgress(project: Pick<Project, "id" | "progress">, tasks: P
   const score = mine.reduce((sum, t) => sum + (t.status === "done" ? 1 : t.status === "in_progress" ? 0.5 : 0), 0);
   return Math.round((score / mine.length) * 100);
 }
-const withTaskProgress = (projects: Project[], tasks: Pick<Task, "project_id" | "status">[]) =>
-  projects.map((p) => ({ ...p, progress: taskProgress(p, tasks) }));
+// A project that reaches 100% counts as completed, whatever status it was left in.
+export function withProgress<P extends Pick<Project, "id" | "progress" | "status">>(project: P, tasks: Pick<Task, "project_id" | "status">[]): P {
+  const progress = taskProgress(project, tasks);
+  return { ...project, progress, status: progress >= 100 ? "done" : project.status };
+}
+const withTaskProgress = (projects: Project[], tasks: Pick<Task, "project_id" | "status">[]) => projects.map((p) => withProgress(p, tasks));
 
 // ---------- Reads ----------
 
@@ -66,22 +70,34 @@ export async function getDashboard(keep: (projectId: number | null) => boolean =
   };
 }
 
-const STATUS_ORDER = { active: 0, planning: 1, on_hold: 2, done: 3 } as const;
+type TaskKey = Pick<Task, "project_id" | "title" | "status" | "due_date">;
+
+// The same task given to several people is stored once per person; show it once with everyone beside it.
+export function groupTasks<T extends TaskKey>(tasks: T[]) {
+  const groups = new Map<string, T[]>();
+  for (const t of tasks) {
+    const key = JSON.stringify([t.project_id, t.title.trim().toLowerCase(), t.status, t.due_date]);
+    groups.set(key, [...(groups.get(key) ?? []), t]);
+  }
+  return [...groups.values()];
+}
 
 export async function listProjects() {
   const [projects, tasks, tickets, managers] = await Promise.all([
     run<Project[]>(supabase.from("projects").select("*")),
-    run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status")),
+    run<TaskKey[]>(supabase.from("tasks").select("project_id, title, status, due_date")),
     run<Pick<Ticket, "project_id">[]>(supabase.from("tickets").select("project_id").not("status", "in", "(resolved,closed)")),
     run<{ project_id: number; person: Pick<Person, "id" | "name"> }[]>(
       supabase.from("project_people").select("project_id, person:people(id, name)").eq("role", PM_ROLE),
     ),
   ]);
+  // Soonest target date first and undated last; completed projects go to the end.
   return projects
-    .sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byDue(a, b))
+    .map((project) => withProgress(project, tasks))
+    .sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || byDue(a, b) || a.name.localeCompare(b.name))
     .map((project) => ({
-      project: { ...project, progress: taskProgress(project, tasks) },
-      openTasks: tasks.filter((t) => t.project_id === project.id && t.status !== "done").length,
+      project,
+      openTasks: groupTasks(tasks.filter((t) => t.project_id === project.id && t.status !== "done")).length,
       openTickets: tickets.filter((t) => t.project_id === project.id).length,
       managers: managers.filter((m) => m.project_id === project.id).map((m) => m.person),
     }));
@@ -103,8 +119,8 @@ export async function getProject(id: number) {
     run<Milestone[]>(supabase.from("milestones").select("*").eq("project_id", id).order("id")),
   ]);
   return {
-    project: { ...project, progress: taskProgress(project, tasks) },
-    tasks: tasks.sort((a, b) => TASK_ORDER[a.status] - TASK_ORDER[b.status] || byDue(a, b)),
+    project: withProgress(project, tasks),
+    tasks: groupTasks(tasks.sort((a, b) => TASK_ORDER[a.status] - TASK_ORDER[b.status] || byDue(a, b))),
     team: team.filter((m) => m.role !== PM_ROLE).sort((a, b) => a.person.name.localeCompare(b.person.name)),
     managers: team.filter((m) => m.role === PM_ROLE).map((m) => m.person).sort((a, b) => a.name.localeCompare(b.name)),
     tickets: tickets.sort(byPriority),
@@ -177,6 +193,34 @@ export async function projectFacets() {
 }
 export type ProjectFacets = Awaited<ReturnType<typeof projectFacets>>;
 
+// A person's page: every project they are on (or have tasks in), with their open tasks.
+export async function getPersonProjects(id: number) {
+  const person = await run<Person | null>(supabase.from("people").select("*").eq("id", id).maybeSingle());
+  if (!person) return null;
+  const [assignments, myTasks] = await Promise.all([
+    run<Assignment[]>(supabase.from("project_people").select("*").eq("person_id", id)),
+    run<Task[]>(supabase.from("tasks").select("*").eq("assignee_id", id)),
+  ]);
+  const ids = [...new Set([...assignments.map((a) => a.project_id), ...myTasks.map((t) => t.project_id)])];
+  const [projects, tasks] = ids.length
+    ? await Promise.all([
+        run<Project[]>(supabase.from("projects").select("*").in("id", ids)),
+        run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status").in("project_id", ids)),
+      ])
+    : [[], []];
+  return {
+    person,
+    projects: projects
+      .map((p) => withProgress(p, tasks))
+      .sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || byDue(a, b) || a.name.localeCompare(b.name))
+      .map((project) => ({
+        project,
+        role: assignments.find((a) => a.project_id === project.id)?.role ?? null,
+        tasks: myTasks.filter((t) => t.project_id === project.id).sort((a, b) => TASK_ORDER[a.status] - TASK_ORDER[b.status] || byDue(a, b)),
+      })),
+  };
+}
+
 export const getPerson = (id: number) => run<Person | null>(supabase.from("people").select("*").eq("id", id).maybeSingle());
 export const projectOptions = () => run<Pick<Project, "id" | "name">[]>(supabase.from("projects").select("id, name").order("name"));
 export const managerOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").eq("role", PM_ROLE).order("name"));
@@ -210,12 +254,38 @@ export type PersonInput = Omit<Person, "id">;
 export type ResourceInput = Omit<Resource, "id" | "created_at">;
 
 export const createProject = (v: ProjectInput) => run<{ id: number }>(supabase.from("projects").insert(v).select("id").single());
-export const updateProject = (id: number, v: Partial<Omit<Project, "id">>) => run(supabase.from("projects").update(v).eq("id", id));
+export const updateProject = (id: number, v: Partial<Omit<Project, "id">>) =>
+  run(supabase.from("projects").update(v.progress != null && v.progress >= 100 ? { ...v, status: "done" } : v).eq("id", id));
 export const deleteProject = (id: number) => run(supabase.from("projects").delete().eq("id", id));
 
-export const createTask = (v: Omit<Task, "id" | "status">) => run(supabase.from("tasks").insert(v));
-export const updateTask = (id: number, v: Partial<Task>) => run(supabase.from("tasks").update(v).eq("id", id));
-export const deleteTask = (id: number) => run(supabase.from("tasks").delete().eq("id", id));
+// Keeps a project's saved status in step with its progress: 100% completes it, dropping below reopens it.
+async function syncStatus(projectId: number) {
+  const [project, tasks] = await Promise.all([
+    run<Pick<Project, "id" | "progress" | "status">>(supabase.from("projects").select("id, progress, status").eq("id", projectId).single()),
+    run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status").eq("project_id", projectId)),
+  ]);
+  const progress = taskProgress(project, tasks);
+  const status = progress >= 100 ? "done" : project.status === "done" ? "active" : project.status;
+  if (status !== project.status) await run(supabase.from("projects").update({ status }).eq("id", projectId));
+}
+
+export async function createTasks(v: (Omit<Task, "id" | "status"> & Partial<Pick<Task, "status">>)[]) {
+  if (v.length === 0) return;
+  await run(supabase.from("tasks").insert(v));
+  await syncStatus(v[0].project_id);
+}
+export async function updateTasks(ids: number[], v: Partial<Task>) {
+  const rows = await run<Pick<Task, "project_id">[]>(supabase.from("tasks").update(v).in("id", ids).select("project_id"));
+  if (rows[0]) await syncStatus(rows[0].project_id);
+}
+export async function deleteTasks(ids: number[]) {
+  const rows = await run<Pick<Task, "project_id">[]>(supabase.from("tasks").delete().in("id", ids).select("project_id"));
+  if (rows[0]) await syncStatus(rows[0].project_id);
+}
+export async function setProgress(projectId: number, progress: number) {
+  await run(supabase.from("projects").update({ progress }).eq("id", projectId));
+  await syncStatus(projectId);
+}
 
 export const assignPerson = (v: Assignment) => run(supabase.from("project_people").upsert(v));
 export const unassignPerson = (projectId: number, personId: number) =>
@@ -224,6 +294,14 @@ export const unassignPerson = (projectId: number, personId: number) =>
 export const createTicket = (v: TicketInput) => run<{ id: number }>(supabase.from("tickets").insert(v).select("id").single());
 export const updateTicket = (id: number, v: Partial<TicketInput>) => run(supabase.from("tickets").update(v).eq("id", id));
 export const deleteTicket = (id: number) => run(supabase.from("tickets").delete().eq("id", id));
+
+// Links a ticket to a project by key, creating it when the key is new.
+export async function linkTicket(projectId: number, key: string, title: string) {
+  const existing = await run<Pick<Ticket, "id">[]>(supabase.from("tickets").select("id").ilike("key", key).limit(1));
+  if (existing[0]) return updateTicket(existing[0].id, { project_id: projectId, ...(title ? { title } : {}) });
+  if (!title) throw new Error(`There is no ${key} yet. Add a summary to create it.`);
+  return createTicket({ key, title, client: null, project_id: projectId, priority: "medium", status: "open", url: null, due_date: null, notes: null });
+}
 
 export const createPerson = (v: PersonInput) => run<{ id: number }>(supabase.from("people").insert(v).select("id").single());
 export const updatePerson = (id: number, v: PersonInput) => run(supabase.from("people").update(v).eq("id", id));

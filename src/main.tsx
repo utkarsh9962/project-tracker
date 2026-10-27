@@ -9,7 +9,7 @@ import { Dashboard } from "./pages/dashboard";
 import { Milestones } from "./pages/milestones";
 import { NewMenu } from "./pages/new";
 import { NotFound } from "./pages/not-found";
-import { EditPerson, People } from "./pages/people";
+import { EditPerson, People, PersonDetail } from "./pages/people";
 import { EditProject, NewProject, ProjectDetail, Projects } from "./pages/projects";
 import { Search } from "./pages/search";
 import { EditTicket, NewTicket, TicketDetail, Tickets } from "./pages/tickets";
@@ -38,7 +38,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="tickets/:id" element={<TicketDetail />} />
               <Route path="tickets/:id/edit" element={<EditTicket />} />
               <Route path="people" element={<People />} />
-              <Route path="people/:id" element={<EditPerson />} />
+              <Route path="people/:id" element={<PersonDetail />} />
+              <Route path="people/:id/edit" element={<EditPerson />} />
               <Route path="search" element={<Search />} />
               <Route path="*" element={<NotFound />} />
             </Route>

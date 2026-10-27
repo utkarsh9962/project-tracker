@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Load } from "@/components/query";
 import { ProjectSlicers, useProjectFilter } from "@/components/slicers";
-import { Badge, Card, DueBadge, Empty, LinkButton, ListSkeleton, PageHeader, Progress, useTitle } from "@/components/ui";
+import { Badge, Card, DueBadge, Empty, LinkButton, ListSkeleton, PageHeader, Progress, StatusBadge, useTitle } from "@/components/ui";
 import { getDashboard } from "@/lib/api";
 
 export function Dashboard() {
@@ -9,7 +9,7 @@ export function Dashboard() {
   const filter = useProjectFilter();
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="What needs your attention across projects and ZSTs." />
+      <PageHeader title="Dashboard" subtitle="What needs your attention across projects and tickets." />
       <ProjectSlicers filter={filter} />
       {filter.ready ? (
         <Load queryKey={["dashboard", ...filter.key]} fn={() => getDashboard(filter.keep)} rows={6}>
@@ -51,7 +51,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
     <div className="space-y-5">
       <div className="stagger grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Active projects" value={stats.activeProjects} href="/projects?status=active" />
-        <Stat label="Open ZSTs" value={stats.openTickets} href="/tickets" />
+        <Stat label="Open tickets" value={stats.openTickets} href="/tickets" />
         <Stat label="Overdue" value={stats.overdue} alert />
         <Stat label="Due in 7 days" value={stats.dueThisWeek} />
       </div>
@@ -59,10 +59,10 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
       {isEmpty && (
         <Card>
           <div className="space-y-3 py-4 text-center">
-            <p className="text-sm text-muted">Nothing here yet. Start by adding a project or a ZST.</p>
+            <p className="text-sm text-muted">Nothing here yet. Start by adding a project or a ticket.</p>
             <div className="flex justify-center gap-2">
               <LinkButton to="/projects/new">New project</LinkButton>
-              <LinkButton to="/tickets/new" variant="secondary">New ZST</LinkButton>
+              <LinkButton to="/tickets/new" variant="secondary">New ticket</LinkButton>
             </div>
           </div>
         </Card>
@@ -91,7 +91,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
           )}
         </Card>
 
-        <Card title={`Open ZSTs${stats.urgentTickets ? ` · ${stats.urgentTickets} urgent` : ""}`} actions={<Link to="/tickets" className="text-xs text-accent">All tickets</Link>}>
+        <Card title={`Open tickets${stats.urgentTickets ? ` · ${stats.urgentTickets} urgent` : ""}`} actions={<Link to="/tickets" className="text-xs text-accent">All tickets</Link>}>
           {openTickets.length === 0 ? (
             <Empty>No open tickets.</Empty>
           ) : (
@@ -99,7 +99,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
               {openTickets.slice(0, 8).map((ticket) => (
                 <li key={ticket.id}>
                   <Link to={`/tickets/${ticket.id}`} className="flex items-center gap-3 py-2.5 hover:opacity-80">
-                    <span className="w-20 shrink-0 font-mono text-xs">{ticket.key}</span>
+                    <span className="w-24 shrink-0 font-mono text-xs">{ticket.key}</span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{ticket.title}</span>
                       <span className="block truncate text-xs text-muted">{[ticket.client, ticket.project?.name].filter(Boolean).join(" · ")}</span>
@@ -126,7 +126,7 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
                       <div className="truncate text-sm font-medium">{p.name}</div>
                       {p.client && <div className="truncate text-xs text-muted">{p.client}</div>}
                     </div>
-                    <Badge value={p.status} />
+                    <StatusBadge status={p.status} />
                   </div>
                   <div className="mt-3">
                     <Progress value={p.progress} />

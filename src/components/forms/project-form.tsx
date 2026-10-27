@@ -1,5 +1,6 @@
 import { PRIORITIES, PROJECT_STATUSES, type Project } from "@/lib/types";
 import type { ProjectInput } from "@/lib/api";
+import { projectStatusLabel } from "@/lib/format";
 import { opt, pct } from "@/lib/values";
 import { Form, SubmitButton } from "@/components/client";
 import { Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
@@ -31,7 +32,7 @@ export function ProjectForm({ onSave, project, cancelTo }: { onSave: (v: Project
         <Input name="progress" type="number" min={0} max={100} defaultValue={project?.progress ?? 0} />
       </Field>
       <Field label="Status">
-        <Select name="status" options={PROJECT_STATUSES} defaultValue={project?.status ?? "active"} />
+        <Select name="status" options={PROJECT_STATUSES.map((s) => ({ value: s, label: projectStatusLabel(s) }))} defaultValue={project?.status ?? "active"} />
       </Field>
       <Field label="Priority">
         <Select name="priority" options={PRIORITIES} defaultValue={project?.priority ?? "medium"} />
