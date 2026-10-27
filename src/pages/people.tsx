@@ -35,7 +35,7 @@ export function People() {
                 : all;
               if (filtering && rows.length === 0) return <Empty>No one is on a project matching these filters.</Empty>;
               return rows.length === 0 ? (
-                <Empty>No people yet. Add the people you work with, then assign them from a project page.</Empty>
+                <Empty>No people yet. Add the people you work with, then add them to projects from their card.</Empty>
               ) : (
                 <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {rows.map(({ person, projects }) => {
@@ -67,6 +67,11 @@ export function People() {
                             ))}
                           </ul>
                         )}
+                        <AddToProject
+                          personId={person.id}
+                          role={person.role}
+                          options={(filter.facets?.projects ?? []).filter((p) => !projects.some((a) => a.project_id === p.id))}
+                        />
                       </li>
                     );
                   })}
@@ -96,6 +101,31 @@ export function People() {
         </Card>
       </div>
     </>
+  );
+}
+
+// Dashed picker at the bottom of a person card that puts them on another project.
+// A project manager joins as that project's PM; anyone else joins with no project role.
+function AddToProject({ personId, role, options }: { personId: number; role: string | null; options: { id: number; name: string; status: string }[] }) {
+  const mutate = useMutate();
+  if (options.length === 0) return null;
+  // Open projects first, finished ones after.
+  const sorted = [...options].sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || a.name.localeCompare(b.name));
+  return (
+    <select
+      value=""
+      aria-label="Add to project"
+      className="mt-3 cursor-pointer rounded-full border border-dashed border-line bg-transparent px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-accent"
+      onChange={(e) => e.target.value && mutate(() => api.assignPerson({ project_id: Number(e.target.value), person_id: personId, role: role === api.PM_ROLE ? role : null }))}
+    >
+      <option value="">+ Add to project</option>
+      {sorted.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+          {p.status === "done" ? " (done)" : ""}
+        </option>
+      ))}
+    </select>
   );
 }
 
