@@ -4,7 +4,7 @@ import { opt } from "@/lib/values";
 import { ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { Load } from "@/components/query";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
-import { Badge, Card, Empty, Field, Input, LinkButton, PageHeader, Textarea, useTitle } from "@/components/ui";
+import { Badge, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
 
 export function People() {
   useTitle("People");
@@ -44,10 +44,12 @@ export function People() {
                       <li key={person.id} className="rounded-2xl border border-line/80 bg-surface p-5 shadow-xs">
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="truncate font-medium">{person.name}</div>
+                            <Link to={`/people/${person.id}`} className="block truncate font-medium hover:underline">
+                              {person.name}
+                            </Link>
                             <div className="truncate text-sm text-muted">{[person.role, person.email].filter(Boolean).join(" · ")}</div>
                           </div>
-                          <Link to={`/people/${person.id}`} className="text-xs text-accent">
+                          <Link to={`/people/${person.id}/edit`} className="text-xs text-accent">
                             Edit
                           </Link>
                         </div>
@@ -62,7 +64,7 @@ export function People() {
                                   {a.project.name}
                                   {a.role && <span className="text-muted"> · {a.role}</span>}
                                 </Link>
-                                <Badge value={a.project.status} />
+                                <StatusBadge status={a.project.status} />
                               </li>
                             ))}
                           </ul>
@@ -129,6 +131,88 @@ function AddToProject({ personId, role, options }: { personId: number; role: str
   );
 }
 
+// Where search and a person's name lead: the projects they are on and the tasks they have there.
+export function PersonDetail() {
+  const id = Number(useParams().id);
+  return (
+    <Load queryKey={["person-projects", id]} fn={() => api.getPersonProjects(id)} rows={4}>
+      {({ person, projects }) => <PersonBody person={person} projects={projects} />}
+    </Load>
+  );
+}
+
+function PersonBody({ person, projects }: NonNullable<Awaited<ReturnType<typeof api.getPersonProjects>>>) {
+  useTitle(person.name);
+  const open = projects.filter((p) => p.project.status !== "done").length;
+  return (
+    <>
+      <div className="mb-2 text-sm">
+        <Link to="/people" className="text-muted hover:text-fg">
+          ← People
+        </Link>
+      </div>
+      <PageHeader
+        title={person.name}
+        subtitle={[person.role, person.email, projects.length > 0 && `On ${open} open project${open === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+        actions={
+          <LinkButton to={`/people/${person.id}/edit`} variant="secondary">
+            Edit
+          </LinkButton>
+        }
+      />
+      {projects.length === 0 ? (
+        <Empty>{person.name} isn’t on any project yet. Add them from the People page or a project’s People card.</Empty>
+      ) : (
+        <ul className="stagger grid grid-cols-1 gap-3 md:grid-cols-2">
+          {projects.map(({ project: p, role, tasks }) => {
+            const openTasks = tasks.filter((t) => t.status !== "done");
+            return (
+              <li key={p.id} className="rounded-2xl border border-line/80 bg-surface p-5 shadow-xs">
+                <Link to={`/projects/${p.id}`} className="block hover:opacity-80">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="truncate font-medium">{p.name}</span>
+                        <DateChip date={p.due_date} done={p.status === "done"} />
+                      </div>
+                      {role && <div className="truncate text-xs text-accent-strong">{role}</div>}
+                    </div>
+                    <StatusBadge status={p.status} />
+                  </div>
+                  <div className="mt-3">
+                    <Progress value={p.progress} />
+                  </div>
+                </Link>
+                {tasks.length > 0 && (
+                  <>
+                    <div className="mt-3 text-xs text-muted">
+                      {openTasks.length} open task{openTasks.length === 1 ? "" : "s"} for {person.name.split(" ")[0]}
+                    </div>
+                    <ul className="mt-1.5 space-y-1">
+                      {tasks.map((t) => (
+                        <li key={t.id} className="flex items-center gap-2 text-sm">
+                          <span className={t.status === "done" ? "min-w-0 flex-1 truncate text-muted line-through" : "min-w-0 flex-1 truncate"}>{t.title}</span>
+                          {t.status === "done" ? <Badge value="done" /> : <DueBadge date={t.due_date} />}
+                          {t.status === "in_progress" && <Badge value="in_progress" />}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {person.notes && (
+        <Card title="Notes" className="mt-5">
+          <p className="whitespace-pre-wrap text-sm">{person.notes}</p>
+        </Card>
+      )}
+    </>
+  );
+}
+
 export function EditPerson() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
@@ -155,7 +239,7 @@ export function EditPerson() {
             className="grid max-w-xl gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs"
             onSubmit={async (v) => {
               await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes) }));
-              navigate("/people");
+              navigate(`/people/${id}`);
             }}
           >
             <Field label="Name">
@@ -172,7 +256,7 @@ export function EditPerson() {
             </Field>
             <div className="flex gap-2">
               <SubmitButton>Save changes</SubmitButton>
-              <LinkButton to="/people" variant="secondary">
+              <LinkButton to={`/people/${id}`} variant="secondary">
                 Cancel
               </LinkButton>
             </div>

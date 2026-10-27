@@ -1,7 +1,7 @@
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
 import { formatDate, humanize } from "@/lib/format";
-import { PRIORITIES, TICKET_STATUSES, type TicketStatus } from "@/lib/types";
+import { PRIORITIES, TICKET_STATUSES, TICKET_TYPES, ticketType, type TicketStatus } from "@/lib/types";
 import { AutoSubmitSelect, ConfirmButton, useMutate } from "@/components/client";
 import { ResourcesCard } from "@/components/forms/resources";
 import { TicketForm } from "@/components/forms/ticket-form";
@@ -11,12 +11,13 @@ import { Badge, Card, cx, DueBadge, Empty, inputClass, LinkButton, PageHeader, s
 
 const STATUS_OPTIONS = [...TICKET_STATUSES.map((s) => ({ value: s, label: humanize(s) })), { value: "all", label: "Everything" }];
 const PRIORITY_OPTIONS = [...PRIORITIES].reverse().map((p) => ({ value: p, label: humanize(p) }));
-const TICKET_KEYS = ["status", "priority", "client"];
+const TICKET_KEYS = ["type", "status", "priority", "client"];
 
 export function Tickets() {
-  useTitle("ZST tickets");
+  useTitle("Tickets");
   // Ticket status uses ?status, so the project-status filter is not offered here.
   const filter = useProjectFilter({ statusKey: "project_status" });
+  const type = filter.get("type");
   const status = filter.get("status");
   const priority = filter.get("priority");
   const client = filter.get("client");
@@ -25,7 +26,7 @@ export function Tickets() {
 
   return (
     <>
-      <PageHeader title="ZST tickets" subtitle="Support queries on live clients." actions={<LinkButton to="/tickets/new">New ZST</LinkButton>} />
+      <PageHeader title="Tickets" subtitle="ZSTs and other JIRA tickets (NET, WP, MOB, CCMS, CMS…) tied to your projects." actions={<LinkButton to="/tickets/new">New ticket</LinkButton>} />
       <input
         type="search"
         defaultValue={q}
@@ -37,9 +38,11 @@ export function Tickets() {
       <Load queryKey={["tickets", "all"]} fn={() => api.listTickets({ status: "all", q: "" })}>
         {(all) => {
           const needle = q.trim().toLowerCase();
+          const types = [...new Set([...TICKET_TYPES, ...all.map((t) => ticketType(t.key))])];
           const clients = [...new Set(all.map((t) => t.client).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b));
           const rows = all.filter(
             (t) =>
+              (!type || ticketType(t.key) === type) &&
               (status === "all" || (status ? t.status === status : api.isOpenTicket(t))) &&
               (!priority || t.priority === priority) &&
               (!client || t.client === client) &&
@@ -49,6 +52,7 @@ export function Tickets() {
           return (
             <>
               <ProjectSlicers filter={filter} showStatus={false} extraKeys={TICKET_KEYS}>
+                <Slicer label="Type" value={type} options={types.map((t) => ({ value: t, label: t }))} onChange={(v) => filter.set("type", v)} />
                 <Slicer label="Status" value={status} allLabel="All unresolved" options={STATUS_OPTIONS} onChange={(v) => filter.set("status", v)} />
                 <Slicer label="Priority" value={priority} options={PRIORITY_OPTIONS} onChange={(v) => filter.set("priority", v)} />
                 <Slicer label="Client" value={client} options={clients.map((c) => ({ value: c, label: c }))} onChange={(v) => filter.set("client", v)} />
@@ -70,7 +74,7 @@ function TicketList({ rows, mutate }: { rows: Awaited<ReturnType<typeof api.list
       {rows.map((t) => (
         <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
           <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
-            <span className="w-20 shrink-0 font-mono text-xs">{t.key}</span>
+            <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{t.title}</span>
               <span className="block truncate text-xs text-muted">{[t.client, t.project?.name].filter(Boolean).join(" · ") || "No client"}</span>
@@ -93,14 +97,14 @@ function TicketList({ rows, mutate }: { rows: Awaited<ReturnType<typeof api.list
 }
 
 export function NewTicket() {
-  useTitle("New ZST");
+  useTitle("New ticket");
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const mutate = useMutate();
   const project = params.get("project");
   return (
     <>
-      <PageHeader title="New ZST ticket" />
+      <PageHeader title="New ticket" />
       <Load queryKey={["project-options"]} fn={api.projectOptions}>
         {(projects) => (
           <TicketForm
@@ -173,7 +177,7 @@ function TicketBody({ ticket: t, resources }: NonNullable<Awaited<ReturnType<typ
     <>
       <div className="mb-2 text-sm">
         <Link to="/tickets" className="text-muted hover:text-fg">
-          ← ZST tickets
+          ← Tickets
         </Link>
       </div>
       <PageHeader

@@ -7,7 +7,7 @@ const ITEMS = [
   { href: "/", label: "Home", icon: "M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10" },
   { href: "/projects", label: "Projects", icon: "M3 7h6l2 2h10v10H3z" },
   { href: "/milestones", label: "Milestones", icon: "M5 21V4M5 4h12l-2.5 4L17 12H5" },
-  { href: "/tickets", label: "ZSTs", icon: "M4 6h16v4a2 2 0 000 4v4H4v-4a2 2 0 000-4z" },
+  { href: "/tickets", label: "Tickets", icon: "M4 6h16v4a2 2 0 000 4v4H4v-4a2 2 0 000-4z" },
   { href: "/people", label: "People", icon: "M16 19v-1a4 4 0 00-8 0v1M12 11a3 3 0 100-6 3 3 0 000 6zM20 19v-1a3 3 0 00-3-3M17 5a3 3 0 010 6" },
   { href: "/search", label: "Search", icon: "M11 18a7 7 0 100-14 7 7 0 000 14zM21 21l-5-5" },
 ];

@@ -1,5 +1,6 @@
+import { useState } from "react";
 import type { TicketInput } from "@/lib/api";
-import { PRIORITIES, TICKET_STATUSES, type Ticket } from "@/lib/types";
+import { PRIORITIES, TICKET_STATUSES, TICKET_TYPES, ticketType, type Ticket } from "@/lib/types";
 import { opt, optId, url } from "@/lib/values";
 import { Form, SubmitButton } from "@/components/client";
 import { Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
@@ -34,9 +35,7 @@ export function TicketForm({
         })
       }
     >
-      <Field label="Ticket key">
-        <Input name="key" required defaultValue={ticket?.key ?? "ZST-"} placeholder="ZST-1234" className="font-mono" />
-      </Field>
+      <KeyFields initial={ticket?.key ?? "ZST-"} />
       <Field label="Client">
         <Input name="client" defaultValue={ticket?.client ?? ""} />
       </Field>
@@ -60,7 +59,7 @@ export function TicketForm({
         <Input name="due_date" type="date" defaultValue={ticket?.due_date ?? ""} />
       </Field>
       <Field label="JIRA link" className="sm:col-span-2">
-        <Input name="url" defaultValue={ticket?.url ?? ""} placeholder="https://yourcompany.atlassian.net/browse/ZST-1234" />
+        <Input name="url" defaultValue={ticket?.url ?? ""} placeholder="https://yourcompany.atlassian.net/browse/NET-1234" />
       </Field>
       <Field label="Notes" className="sm:col-span-2">
         <Textarea name="notes" rows={5} defaultValue={ticket?.notes ?? ""} />
@@ -72,5 +71,27 @@ export function TicketForm({
         </LinkButton>
       </div>
     </Form>
+  );
+}
+
+// Picking a type swaps the key's prefix, so NET-1234 becomes CMS-1234. Any other prefix can be typed in.
+function KeyFields({ initial }: { initial: string }) {
+  const [key, setKey] = useState(initial);
+  const type = ticketType(key);
+  const types: string[] = [...TICKET_TYPES];
+  if (type && !types.includes(type)) types.push(type);
+  return (
+    <div className="grid grid-cols-[7rem_1fr] gap-2">
+      <Field label="Type">
+        <Select
+          value={type}
+          onChange={(e) => setKey(`${e.target.value}-${key.includes("-") ? key.slice(key.indexOf("-") + 1) : ""}`)}
+          options={types.map((t) => ({ value: t, label: t }))}
+        />
+      </Field>
+      <Field label="Ticket key">
+        <Input name="key" required value={key} onChange={(e) => setKey(e.target.value.toUpperCase())} placeholder="NET-1234" className="font-mono" />
+      </Field>
+    </div>
   );
 }

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
 import { Load } from "@/components/query";
-import { Badge, Card, Empty, inputClass, PageHeader, safeHref, useTitle } from "@/components/ui";
+import { Badge, Card, Empty, inputClass, PageHeader, safeHref, StatusBadge, useTitle } from "@/components/ui";
 
 function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
   if (count === 0) return null;
@@ -28,7 +28,7 @@ export function Search() {
           setParams({ q: String(new FormData(e.currentTarget).get("q") ?? "") });
         }}
       >
-        <input key={q} name="q" type="search" defaultValue={q} autoFocus={!q} placeholder="Projects, tasks, ZSTs, people, links…" aria-label="Search" className={inputClass} />
+        <input key={q} name="q" type="search" defaultValue={q} autoFocus={!q} placeholder="Projects, tasks, tickets, people, links…" aria-label="Search" className={inputClass} />
       </form>
       {q && (
         <Load queryKey={["search", q]} fn={() => api.search(q)}>
@@ -43,16 +43,16 @@ export function Search() {
                       <Link to={`/projects/${p.id}`} className={row}>
                         <span className="min-w-0 flex-1 truncate text-sm font-medium">{p.name}</span>
                         <span className="text-xs text-muted">{p.client}</span>
-                        <Badge value={p.status} />
+                        <StatusBadge status={p.status} />
                       </Link>
                     </li>
                   ))}
                 </Section>
-                <Section title="ZST tickets" count={r.tickets.length}>
+                <Section title="Tickets" count={r.tickets.length}>
                   {r.tickets.map((t) => (
                     <li key={t.id}>
                       <Link to={`/tickets/${t.id}`} className={row}>
-                        <span className="w-20 shrink-0 font-mono text-xs">{t.key}</span>
+                        <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
                         <span className="min-w-0 flex-1 truncate text-sm">{t.title}</span>
                         <Badge value={t.status} />
                       </Link>

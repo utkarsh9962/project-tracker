@@ -3,7 +3,7 @@ import { PageHeader, useTitle } from "@/components/ui";
 
 const OPTIONS = [
   { to: "/projects/new", title: "Project", text: "A piece of work with a client, deadline, team and tasks." },
-  { to: "/tickets/new", title: "ZST ticket", text: "A support query on a live client, linked to JIRA." },
+  { to: "/tickets/new", title: "Ticket", text: "A ZST, NET, WP, MOB, CCMS or CMS ticket, linked to JIRA." },
   { to: "/people", title: "Person", text: "Someone you assign to projects." },
 ];
 
