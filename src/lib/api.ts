@@ -1,6 +1,6 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
-import { PLATFORM_TAGS, type Assignment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket } from "./types";
+import { PLATFORM_TAGS, type Assignment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
 // Row types come from src/lib/types.ts rather than generated database types, hence the cast.
@@ -147,10 +147,10 @@ export async function listMilestones() {
 }
 
 export async function listTickets(filter: { status: string; q: string }) {
-  let query = supabase.from("tickets").select("*, project:projects(name)").order("updated_at", { ascending: false });
+  let query = supabase.from("tickets").select("*, project:projects(name), people(id, name)").order("updated_at", { ascending: false });
   if (filter.status === "active") query = query.not("status", "in", "(resolved,closed)");
   else if (filter.status !== "all") query = query.eq("status", filter.status);
-  const rows = await run<WithProject<Ticket>[]>(query);
+  const rows = await run<(WithProject<Ticket> & { people: Pick<Person, "id" | "name">[] })[]>(query);
   const q = filter.q.trim().toLowerCase();
   return rows
     .filter((t) => !q || [t.key, t.title, t.client].some((v) => v?.toLowerCase().includes(q)))
@@ -160,18 +160,32 @@ export async function listTickets(filter: { status: string; q: string }) {
 export async function getTicket(id: number) {
   const ticket = await run<WithProject<Ticket> | null>(supabase.from("tickets").select("*, project:projects(name)").eq("id", id).maybeSingle());
   if (!ticket) return null;
-  const resources = await run<Resource[]>(supabase.from("resources").select("*").eq("ticket_id", id).order("created_at", { ascending: false }));
-  return { ticket, resources };
+  const [resources, people] = await Promise.all([
+    run<Resource[]>(supabase.from("resources").select("*").eq("ticket_id", id).order("created_at", { ascending: false })),
+    run<{ person: Pick<Person, "id" | "name" | "role"> }[]>(supabase.from("ticket_people").select("person:people(id, name, role)").eq("ticket_id", id)),
+  ]);
+  return { ticket, resources, people: people.map((p) => p.person).sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
+// The tickets a person works on, open ones first, most urgent first.
+type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id">;
+const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id";
+const byTicketUrgency = (a: AssignedTicket, b: AssignedTicket) =>
+  Number(!isOpenTicket(a)) - Number(!isOpenTicket(b)) || byPriority(a, b) || byDue(a, b) || a.key.localeCompare(b.key);
+
 export async function listPeople() {
-  const [people, assignments] = await Promise.all([
+  const [people, assignments, ticketAssignments] = await Promise.all([
     run<Person[]>(supabase.from("people").select("*").order("name")),
     run<(Assignment & { project: Pick<Project, "id" | "name" | "status"> })[]>(supabase.from("project_people").select("*, project:projects(id, name, status)")),
+    run<(TicketAssignment & { ticket: AssignedTicket })[]>(supabase.from("ticket_people").select(`*, ticket:tickets(${TICKET_FIELDS})`)),
   ]);
   return people.map((person) => ({
     person,
     projects: assignments.filter((a) => a.person_id === person.id).sort((a, b) => a.project.name.localeCompare(b.project.name)),
+    tickets: ticketAssignments
+      .filter((a) => a.person_id === person.id)
+      .map((a) => a.ticket)
+      .sort(byTicketUrgency),
   }));
 }
 
@@ -197,9 +211,10 @@ export type ProjectFacets = Awaited<ReturnType<typeof projectFacets>>;
 export async function getPersonProjects(id: number) {
   const person = await run<Person | null>(supabase.from("people").select("*").eq("id", id).maybeSingle());
   if (!person) return null;
-  const [assignments, myTasks] = await Promise.all([
+  const [assignments, myTasks, myTickets] = await Promise.all([
     run<Assignment[]>(supabase.from("project_people").select("*").eq("person_id", id)),
     run<Task[]>(supabase.from("tasks").select("*").eq("assignee_id", id)),
+    run<{ ticket: AssignedTicket & { client: string | null } }[]>(supabase.from("ticket_people").select(`ticket:tickets(${TICKET_FIELDS}, client)`).eq("person_id", id)),
   ]);
   const ids = [...new Set([...assignments.map((a) => a.project_id), ...myTasks.map((t) => t.project_id)])];
   const [projects, tasks] = ids.length
@@ -210,6 +225,7 @@ export async function getPersonProjects(id: number) {
     : [[], []];
   return {
     person,
+    tickets: myTickets.map((t) => t.ticket).sort(byTicketUrgency),
     projects: projects
       .map((p) => withProgress(p, tasks))
       .sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || byDue(a, b) || a.name.localeCompare(b.name))
@@ -224,6 +240,7 @@ export async function getPersonProjects(id: number) {
 export const getPerson = (id: number) => run<Person | null>(supabase.from("people").select("*").eq("id", id).maybeSingle());
 export const projectOptions = () => run<Pick<Project, "id" | "name">[]>(supabase.from("projects").select("id, name").order("name"));
 export const managerOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").eq("role", PM_ROLE).order("name"));
+export const ticketOptions = () => run<AssignedTicket[]>(supabase.from("tickets").select(TICKET_FIELDS).not("status", "in", "(resolved,closed)").order("key", { ascending: false }));
 export const peopleOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").order("name"));
 
 // A personal tracker stays small, so search filters everything client-side.
@@ -290,6 +307,10 @@ export async function setProgress(projectId: number, progress: number) {
 export const assignPerson = (v: Assignment) => run(supabase.from("project_people").upsert(v));
 export const unassignPerson = (projectId: number, personId: number) =>
   run(supabase.from("project_people").delete().eq("project_id", projectId).eq("person_id", personId));
+
+export const assignTicket = (v: TicketAssignment) => run(supabase.from("ticket_people").upsert(v));
+export const unassignTicket = (ticketId: number, personId: number) =>
+  run(supabase.from("ticket_people").delete().eq("ticket_id", ticketId).eq("person_id", personId));
 
 export const createTicket = (v: TicketInput) => run<{ id: number }>(supabase.from("tickets").insert(v).select("id").single());
 export const updateTicket = (id: number, v: Partial<TicketInput>) => run(supabase.from("tickets").update(v).eq("id", id));

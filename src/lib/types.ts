@@ -55,3 +55,4 @@ export type Resource = {
 };
 export type Milestone = { id: number; project_id: number; title: string; due_date: string | null; done: boolean; created_at: string };
 export type Assignment = { project_id: number; person_id: number; role: string | null };
+export type TicketAssignment = { ticket_id: number; person_id: number };

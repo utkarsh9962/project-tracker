@@ -11,7 +11,7 @@ import { Badge, Card, cx, DueBadge, Empty, inputClass, LinkButton, PageHeader, s
 
 const STATUS_OPTIONS = [...TICKET_STATUSES.map((s) => ({ value: s, label: humanize(s) })), { value: "all", label: "Everything" }];
 const PRIORITY_OPTIONS = [...PRIORITIES].reverse().map((p) => ({ value: p, label: humanize(p) }));
-const TICKET_KEYS = ["type", "status", "priority", "client"];
+const TICKET_KEYS = ["type", "status", "priority", "client", "person"];
 
 export function Tickets() {
   useTitle("Tickets");
@@ -21,6 +21,7 @@ export function Tickets() {
   const status = filter.get("status");
   const priority = filter.get("priority");
   const client = filter.get("client");
+  const person = Number(filter.get("person")) || 0;
   const q = filter.get("q");
   const mutate = useMutate();
 
@@ -40,12 +41,14 @@ export function Tickets() {
           const needle = q.trim().toLowerCase();
           const types = [...new Set([...TICKET_TYPES, ...all.map((t) => ticketType(t.key))])];
           const clients = [...new Set(all.map((t) => t.client).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b));
+          const people = [...new Map(all.flatMap((t) => t.people).map((p) => [p.id, p.name]))].sort((a, b) => a[1].localeCompare(b[1]));
           const rows = all.filter(
             (t) =>
               (!type || ticketType(t.key) === type) &&
               (status === "all" || (status ? t.status === status : api.isOpenTicket(t))) &&
               (!priority || t.priority === priority) &&
               (!client || t.client === client) &&
+              (!person || t.people.some((p) => p.id === person)) &&
               filter.keep(t.project_id) &&
               (!needle || [t.key, t.title, t.client].some((v) => v?.toLowerCase().includes(needle))),
           );
@@ -56,6 +59,7 @@ export function Tickets() {
                 <Slicer label="Status" value={status} allLabel="All unresolved" options={STATUS_OPTIONS} onChange={(v) => filter.set("status", v)} />
                 <Slicer label="Priority" value={priority} options={PRIORITY_OPTIONS} onChange={(v) => filter.set("priority", v)} />
                 <Slicer label="Client" value={client} options={clients.map((c) => ({ value: c, label: c }))} onChange={(v) => filter.set("client", v)} />
+                <Slicer label="Person" value={person} options={people.map(([id, name]) => ({ value: String(id), label: name }))} onChange={(v) => filter.set("person", v)} />
               </ProjectSlicers>
               <TicketList rows={rows} mutate={mutate} />
             </>
@@ -77,7 +81,10 @@ function TicketList({ rows, mutate }: { rows: Awaited<ReturnType<typeof api.list
             <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">{t.title}</span>
-              <span className="block truncate text-xs text-muted">{[t.client, t.project?.name].filter(Boolean).join(" · ") || "No client"}</span>
+              <span className="block truncate text-xs text-muted">
+                {[t.client, t.project?.name].filter(Boolean).join(" · ") || "No client"}
+                {t.people.length > 0 && <span className="text-accent-strong"> · {t.people.map((p) => p.name).join(", ")}</span>}
+              </span>
             </span>
           </Link>
           <div className="flex items-center gap-1.5">
@@ -169,7 +176,7 @@ export function TicketDetail() {
   );
 }
 
-function TicketBody({ ticket: t, resources }: NonNullable<Awaited<ReturnType<typeof api.getTicket>>>) {
+function TicketBody({ ticket: t, resources, people }: NonNullable<Awaited<ReturnType<typeof api.getTicket>>>) {
   useTitle(t.key);
   const mutate = useMutate();
   const jira = safeHref(t.url);
@@ -215,9 +222,65 @@ function TicketBody({ ticket: t, resources }: NonNullable<Awaited<ReturnType<typ
             </div>
             {t.notes ? <p className="mt-4 whitespace-pre-wrap text-sm">{t.notes}</p> : <p className="mt-4 text-sm text-muted">No notes yet.</p>}
           </Card>
+          <TicketPeopleCard ticketId={t.id} people={people} />
         </div>
         <ResourcesCard resources={resources} target={{ project_id: null, ticket_id: t.id }} />
       </div>
     </>
+  );
+}
+
+// Who is working on a ticket. Picking a name assigns them; it then shows under "Working on tickets" on their People card.
+function TicketPeopleCard({ ticketId, people }: { ticketId: number; people: { id: number; name: string; role: string | null }[] }) {
+  const mutate = useMutate();
+  return (
+    <Card title="Working on this">
+      {people.length === 0 ? (
+        <p className="text-sm text-muted">No one is assigned yet.</p>
+      ) : (
+        <ul className="stagger divide-y divide-line/70">
+          {people.map((p) => (
+            <li key={p.id} className="flex items-center gap-2 py-2">
+              <Link to={`/people/${p.id}`} className="min-w-0 flex-1 hover:underline">
+                <span className="block truncate text-sm font-medium">{p.name}</span>
+                {p.role && <span className="block truncate text-xs text-muted">{p.role}</span>}
+              </Link>
+              <ConfirmButton label="Remove" onConfirm={() => mutate(() => api.unassignTicket(ticketId, p.id))} />
+            </li>
+          ))}
+        </ul>
+      )}
+      <Load queryKey={["people-options"]} fn={api.peopleOptions} rows={1}>
+        {(everyone) => {
+          const others = everyone.filter((x) => !people.some((p) => p.id === x.id));
+          if (everyone.length === 0)
+            return (
+              <p className="mt-3 text-xs text-muted">
+                <Link to="/people" className="text-accent">
+                  Add people
+                </Link>{" "}
+                to assign them here.
+              </p>
+            );
+          return (
+            others.length > 0 && (
+              <select
+                value=""
+                aria-label="Assign a person"
+                className="mt-3 cursor-pointer rounded-full border border-dashed border-line bg-transparent px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-accent"
+                onChange={(e) => e.target.value && mutate(() => api.assignTicket({ ticket_id: ticketId, person_id: Number(e.target.value) }))}
+              >
+                <option value="">+ Assign a person</option>
+                {others.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                  </option>
+                ))}
+              </select>
+            )
+          );
+        }}
+      </Load>
+    </Card>
   );
 }
