@@ -113,12 +113,12 @@ export function People() {
   );
 }
 
-// Opens the person's saved Jira filter in Jira.
+// Opens the person's Jira working items (their saved Jira filter).
 function JiraFilterLink({ url }: { url: string | null }) {
   if (!url) return null;
   return (
     <a href={url} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent hover:underline">
-      Jira filter ↗
+      Jira working items ↗
     </a>
   );
 }
@@ -234,7 +234,7 @@ function PersonBody({ person, projects, tickets }: NonNullable<Awaited<ReturnTyp
           <>
             {person.jira_filter && (
               <a href={person.jira_filter} target="_blank" rel="noreferrer" className={buttonClass("secondary")}>
-                Jira filter ↗
+                Jira working items ↗
               </a>
             )}
             <LinkButton to={`/people/${person.id}/edit`} variant="secondary">
@@ -358,7 +358,7 @@ export function EditPerson() {
             <Field label="Email">
               <Input name="email" type="email" defaultValue={person.email ?? ""} />
             </Field>
-            <Field label="Jira filter link">
+            <Field label="Jira working items link">
               <Input name="jira_filter" type="url" placeholder="https://quicketsolutions.atlassian.net/issues/?filter=…" defaultValue={person.jira_filter ?? ""} />
             </Field>
             <Field label="Notes">
