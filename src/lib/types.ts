@@ -16,7 +16,7 @@ export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
 // Row shapes as stored in Supabase (snake_case columns).
-export type Person = { id: number; name: string; role: string | null; email: string | null; notes: string | null };
+export type Person = { id: number; name: string; role: string | null; email: string | null; notes: string | null; jira_filter: string | null };
 export type Project = {
   id: number;
   name: string;

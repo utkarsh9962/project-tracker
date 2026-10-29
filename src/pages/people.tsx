@@ -5,7 +5,7 @@ import { opt } from "@/lib/values";
 import { ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { Load } from "@/components/query";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
-import { Badge, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
+import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
 
 export function People() {
   useTitle("People");
@@ -53,6 +53,7 @@ export function People() {
                               {person.name}
                             </Link>
                             <div className="truncate text-sm text-muted">{[person.role, person.email].filter(Boolean).join(" · ")}</div>
+                            <JiraFilterLink url={person.jira_filter} />
                           </div>
                           <Link to={`/people/${person.id}/edit`} className="text-xs text-accent">
                             Edit
@@ -109,6 +110,16 @@ export function People() {
         </Card>
       </div>
     </>
+  );
+}
+
+// Opens the person's saved Jira filter in Jira.
+function JiraFilterLink({ url }: { url: string | null }) {
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent hover:underline">
+      Jira filter ↗
+    </a>
   );
 }
 
@@ -220,9 +231,16 @@ function PersonBody({ person, projects, tickets }: NonNullable<Awaited<ReturnTyp
         title={person.name}
         subtitle={[person.role, person.email, projects.length > 0 && `On ${open} open project${open === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
         actions={
-          <LinkButton to={`/people/${person.id}/edit`} variant="secondary">
-            Edit
-          </LinkButton>
+          <>
+            {person.jira_filter && (
+              <a href={person.jira_filter} target="_blank" rel="noreferrer" className={buttonClass("secondary")}>
+                Jira filter ↗
+              </a>
+            )}
+            <LinkButton to={`/people/${person.id}/edit`} variant="secondary">
+              Edit
+            </LinkButton>
+          </>
         }
       />
       <Card title="Working on tickets" className="mb-5">
@@ -327,7 +345,7 @@ export function EditPerson() {
           <Form
             className="grid max-w-xl gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs"
             onSubmit={async (v) => {
-              await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes) }));
+              await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes), jira_filter: opt(v.jira_filter) }));
               navigate(`/people/${id}`);
             }}
           >
@@ -339,6 +357,9 @@ export function EditPerson() {
             </Field>
             <Field label="Email">
               <Input name="email" type="email" defaultValue={person.email ?? ""} />
+            </Field>
+            <Field label="Jira filter link">
+              <Input name="jira_filter" type="url" placeholder="https://quicketsolutions.atlassian.net/issues/?filter=…" defaultValue={person.jira_filter ?? ""} />
             </Field>
             <Field label="Notes">
               <Textarea name="notes" defaultValue={person.notes ?? ""} />

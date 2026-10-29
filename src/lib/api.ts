@@ -267,7 +267,7 @@ export async function search(q: string) {
 
 export type ProjectInput = Omit<Project, "id" | "tags">;
 export type TicketInput = Omit<Ticket, "id" | "updated_at">;
-export type PersonInput = Omit<Person, "id">;
+export type PersonInput = Omit<Person, "id" | "jira_filter"> & { jira_filter?: string | null };
 export type ResourceInput = Omit<Resource, "id" | "created_at">;
 
 export const createProject = (v: ProjectInput) => run<{ id: number }>(supabase.from("projects").insert(v).select("id").single());
