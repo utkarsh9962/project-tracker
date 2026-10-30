@@ -326,6 +326,7 @@ export async function linkTicket(projectId: number, key: string, title: string) 
 
 export const createPerson = (v: PersonInput) => run<{ id: number }>(supabase.from("people").insert(v).select("id").single());
 export const updatePerson = (id: number, v: PersonInput) => run(supabase.from("people").update(v).eq("id", id));
+export const setJiraFilter = (id: number, url: string | null) => run(supabase.from("people").update({ jira_filter: url }).eq("id", id));
 export const deletePerson = (id: number) => run(supabase.from("people").delete().eq("id", id));
 
 export const addResource = (v: ResourceInput) => run(supabase.from("resources").insert(v));

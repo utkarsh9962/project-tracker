@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import * as api from "@/lib/api";
 import { opt } from "@/lib/values";
@@ -53,7 +54,7 @@ export function People() {
                               {person.name}
                             </Link>
                             <div className="truncate text-sm text-muted">{[person.role, person.email].filter(Boolean).join(" · ")}</div>
-                            <JiraFilterLink url={person.jira_filter} />
+                            <JiraFilterLink personId={person.id} url={person.jira_filter} />
                           </div>
                           <Link to={`/people/${person.id}/edit`} className="text-xs text-accent">
                             Edit
@@ -94,7 +95,7 @@ export function People() {
             id="add"
             reset
             className="space-y-3"
-            onSubmit={(v) => mutate(() => api.createPerson({ name: v.name, role: opt(v.role), email: opt(v.email), notes: null }))}
+            onSubmit={(v) => mutate(() => api.createPerson({ name: v.name, role: opt(v.role), email: opt(v.email), notes: null, jira_filter: opt(v.jira_filter) }))}
           >
             <Field label="Name">
               <Input name="name" required />
@@ -105,6 +106,9 @@ export function People() {
             <Field label="Email">
               <Input name="email" type="email" />
             </Field>
+            <Field label="Jira working items link">
+              <Input name="jira_filter" type="url" placeholder="Optional" />
+            </Field>
             <SubmitButton>Add person</SubmitButton>
           </Form>
         </Card>
@@ -113,13 +117,36 @@ export function People() {
   );
 }
 
-// Opens the person's Jira working items (their saved Jira filter).
-function JiraFilterLink({ url }: { url: string | null }) {
-  if (!url) return null;
+// Opens the person's Jira working items (their saved Jira filter). Without a link yet, offers to add one right on the card.
+function JiraFilterLink({ personId, url }: { personId: number; url: string | null }) {
+  const mutate = useMutate();
+  const [adding, setAdding] = useState(false);
+  if (url)
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent hover:underline">
+        Jira working items ↗
+      </a>
+    );
+  if (!adding)
+    return (
+      <button type="button" className="block text-xs text-muted transition hover:text-accent" onClick={() => setAdding(true)}>
+        + Add Jira working items link
+      </button>
+    );
   return (
-    <a href={url} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent hover:underline">
-      Jira working items ↗
-    </a>
+    <Form
+      className="mt-1 flex flex-wrap items-center gap-2"
+      onSubmit={async (v) => {
+        await mutate(() => api.setJiraFilter(personId, opt(v.jira_filter)));
+        setAdding(false);
+      }}
+    >
+      <Input name="jira_filter" type="url" required autoFocus placeholder="Paste the Jira filter link" className="h-8 min-w-0 flex-1 text-xs" />
+      <SubmitButton small>Save</SubmitButton>
+      <button type="button" className="text-xs text-muted hover:text-fg" onClick={() => setAdding(false)}>
+        Cancel
+      </button>
+    </Form>
   );
 }
 
