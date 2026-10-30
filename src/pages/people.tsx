@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import * as api from "@/lib/api";
 import { opt } from "@/lib/values";
 import { ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { Load } from "@/components/query";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
-import { Badge, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
+import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
 
 export function People() {
   useTitle("People");
@@ -53,6 +54,7 @@ export function People() {
                               {person.name}
                             </Link>
                             <div className="truncate text-sm text-muted">{[person.role, person.email].filter(Boolean).join(" · ")}</div>
+                            <JiraFilterLink personId={person.id} url={person.jira_filter} />
                           </div>
                           <Link to={`/people/${person.id}/edit`} className="text-xs text-accent">
                             Edit
@@ -93,7 +95,7 @@ export function People() {
             id="add"
             reset
             className="space-y-3"
-            onSubmit={(v) => mutate(() => api.createPerson({ name: v.name, role: opt(v.role), email: opt(v.email), notes: null }))}
+            onSubmit={(v) => mutate(() => api.createPerson({ name: v.name, role: opt(v.role), email: opt(v.email), notes: null, jira_filter: opt(v.jira_filter) }))}
           >
             <Field label="Name">
               <Input name="name" required />
@@ -104,11 +106,47 @@ export function People() {
             <Field label="Email">
               <Input name="email" type="email" />
             </Field>
+            <Field label="Jira working items link">
+              <Input name="jira_filter" type="url" placeholder="Optional" />
+            </Field>
             <SubmitButton>Add person</SubmitButton>
           </Form>
         </Card>
       </div>
     </>
+  );
+}
+
+// Opens the person's Jira working items (their saved Jira filter). Without a link yet, offers to add one right on the card.
+function JiraFilterLink({ personId, url }: { personId: number; url: string | null }) {
+  const mutate = useMutate();
+  const [adding, setAdding] = useState(false);
+  if (url)
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="inline-block text-xs text-accent hover:underline">
+        Jira working items ↗
+      </a>
+    );
+  if (!adding)
+    return (
+      <button type="button" className="block text-xs text-muted transition hover:text-accent" onClick={() => setAdding(true)}>
+        + Add Jira working items link
+      </button>
+    );
+  return (
+    <Form
+      className="mt-1 flex flex-wrap items-center gap-2"
+      onSubmit={async (v) => {
+        await mutate(() => api.setJiraFilter(personId, opt(v.jira_filter)));
+        setAdding(false);
+      }}
+    >
+      <Input name="jira_filter" type="url" required autoFocus placeholder="Paste the Jira filter link" className="h-8 min-w-0 flex-1 text-xs" />
+      <SubmitButton small>Save</SubmitButton>
+      <button type="button" className="text-xs text-muted hover:text-fg" onClick={() => setAdding(false)}>
+        Cancel
+      </button>
+    </Form>
   );
 }
 
@@ -220,9 +258,16 @@ function PersonBody({ person, projects, tickets }: NonNullable<Awaited<ReturnTyp
         title={person.name}
         subtitle={[person.role, person.email, projects.length > 0 && `On ${open} open project${open === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
         actions={
-          <LinkButton to={`/people/${person.id}/edit`} variant="secondary">
-            Edit
-          </LinkButton>
+          <>
+            {person.jira_filter && (
+              <a href={person.jira_filter} target="_blank" rel="noreferrer" className={buttonClass("secondary")}>
+                Jira working items ↗
+              </a>
+            )}
+            <LinkButton to={`/people/${person.id}/edit`} variant="secondary">
+              Edit
+            </LinkButton>
+          </>
         }
       />
       <Card title="Working on tickets" className="mb-5">
@@ -327,7 +372,7 @@ export function EditPerson() {
           <Form
             className="grid max-w-xl gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs"
             onSubmit={async (v) => {
-              await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes) }));
+              await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes), jira_filter: opt(v.jira_filter) }));
               navigate(`/people/${id}`);
             }}
           >
@@ -339,6 +384,9 @@ export function EditPerson() {
             </Field>
             <Field label="Email">
               <Input name="email" type="email" defaultValue={person.email ?? ""} />
+            </Field>
+            <Field label="Jira working items link">
+              <Input name="jira_filter" type="url" placeholder="https://quicketsolutions.atlassian.net/issues/?filter=…" defaultValue={person.jira_filter ?? ""} />
             </Field>
             <Field label="Notes">
               <Textarea name="notes" defaultValue={person.notes ?? ""} />
