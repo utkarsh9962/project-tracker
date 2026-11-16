@@ -10,7 +10,7 @@ The site is hosted for free on **GitHub Pages** and keeps your data in **Supabas
 - **Projects**: client, status, priority, progress, start and due dates, description, tasks (with assignee and due date), team, linked ZSTs, and files/links/notes.
 - **ZST tickets**: key, summary, client, project, priority, status, due/SLA date, JIRA link, notes, and files/links. Change status straight from the list.
 - **People**: who's on which project and in what role.
-- **Search** across projects, tasks, tickets, people and links.
+- **Search** across projects, clients, people, tickets, tasks, milestones, tags, links and notes. It searches as you type and forgives typos and half-typed words.
 - Email and password login (Supabase Auth).
 
 Not yet: JIRA sync, Slack/email capture, spreadsheet import, file uploads, sharing.

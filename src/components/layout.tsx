@@ -1,10 +1,10 @@
-import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { Link, Outlet, useLocation } from "react-router";
 import { signOut } from "./auth";
 import { BottomNav, TopNav } from "./nav";
-import { buttonClass, cx, inputClass, Logo } from "./ui";
+import { HeaderSearch } from "./search";
+import { buttonClass, cx, Logo } from "./ui";
 
 export function Layout() {
-  const navigate = useNavigate();
   const { pathname } = useLocation();
   return (
     <div className="min-h-dvh pb-28 md:pb-10">
@@ -16,22 +16,7 @@ export function Layout() {
           </Link>
           <TopNav />
           <div className="ml-auto flex items-center gap-2">
-            <form
-              className="hidden md:block"
-              onSubmit={(e) => {
-                e.preventDefault();
-                const q = new FormData(e.currentTarget).get("q");
-                navigate(`/search?q=${encodeURIComponent(String(q ?? ""))}`);
-              }}
-            >
-              <input
-                name="q"
-                type="search"
-                placeholder="Search…"
-                aria-label="Search"
-                className={cx(inputClass, "w-44 rounded-full border-transparent bg-hover py-1.5 focus:w-60 focus:bg-surface")}
-              />
-            </form>
+            <HeaderSearch />
             <Link to="/new" className={cx(buttonClass("primary", true), "rounded-full px-3.5 py-1.5")}>
               + New
             </Link>

@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
+import { matches } from "@/lib/search";
 import { formatDate, humanize } from "@/lib/format";
 import { PRIORITIES, TICKET_STATUSES, TICKET_TYPES, ticketType, type TicketStatus } from "@/lib/types";
 import { AutoSubmitSelect, ConfirmButton, useMutate } from "@/components/client";
@@ -32,13 +33,12 @@ export function Tickets() {
         type="search"
         defaultValue={q}
         onChange={(e) => filter.set("q", e.target.value)}
-        placeholder="Search by key, summary or client…"
+        placeholder="Search by key, summary, client, project or person…"
         aria-label="Search tickets"
         className={cx(inputClass, "mb-3")}
       />
       <Load queryKey={["tickets", "all"]} fn={() => api.listTickets({ status: "all", q: "" })}>
         {(all) => {
-          const needle = q.trim().toLowerCase();
           const types = [...new Set([...TICKET_TYPES, ...all.map((t) => ticketType(t.key))])];
           const clients = [...new Set(all.map((t) => t.client).filter((c): c is string => Boolean(c)))].sort((a, b) => a.localeCompare(b));
           const people = [...new Map(all.flatMap((t) => t.people).map((p) => [p.id, p.name]))].sort((a, b) => a[1].localeCompare(b[1]));
@@ -50,7 +50,7 @@ export function Tickets() {
               (!client || t.client === client) &&
               (!person || t.people.some((p) => p.id === person)) &&
               filter.keep(t.project_id) &&
-              (!needle || [t.key, t.title, t.client].some((v) => v?.toLowerCase().includes(needle))),
+              matches(q, t.key, t.title, t.client, t.project?.name, ...t.people.map((p) => p.name)),
           );
           return (
             <>

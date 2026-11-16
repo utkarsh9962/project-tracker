@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
+import { matches, type SearchData } from "./search";
 import { PLATFORM_TAGS, type Assignment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
@@ -151,9 +152,8 @@ export async function listTickets(filter: { status: string; q: string }) {
   if (filter.status === "active") query = query.not("status", "in", "(resolved,closed)");
   else if (filter.status !== "all") query = query.eq("status", filter.status);
   const rows = await run<(WithProject<Ticket> & { people: Pick<Person, "id" | "name">[] })[]>(query);
-  const q = filter.q.trim().toLowerCase();
   return rows
-    .filter((t) => !q || [t.key, t.title, t.client].some((v) => v?.toLowerCase().includes(q)))
+    .filter((t) => matches(filter.q, t.key, t.title, t.client, t.project?.name, ...t.people.map((p) => p.name)))
     .sort(byPriority);
 }
 
@@ -243,24 +243,19 @@ export const managerOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.
 export const ticketOptions = () => run<AssignedTicket[]>(supabase.from("tickets").select(TICKET_FIELDS).not("status", "in", "(resolved,closed)").order("key", { ascending: false }));
 export const peopleOptions = () => run<Pick<Person, "id" | "name">[]>(supabase.from("people").select("id, name").order("name"));
 
-// A personal tracker stays small, so search filters everything client-side.
-export async function search(q: string) {
-  const needle = q.trim().toLowerCase();
-  const has = (...values: (string | null)[]) => values.some((v) => v?.toLowerCase().includes(needle));
-  const [projects, tasks, tickets, people, resources] = await Promise.all([
+// Everything search looks through. The tracker stays small, so it is loaded once and searched in the browser (src/lib/search.ts).
+export async function searchData(): Promise<SearchData> {
+  const [projects, tasks, tickets, people, resources, milestones, projectPeople, ticketPeople] = await Promise.all([
     run<Project[]>(supabase.from("projects").select("*")),
     run<Task[]>(supabase.from("tasks").select("*")),
     run<Ticket[]>(supabase.from("tickets").select("*")),
     run<Person[]>(supabase.from("people").select("*")),
     run<Resource[]>(supabase.from("resources").select("*")),
+    run<Milestone[]>(supabase.from("milestones").select("*")),
+    run<Assignment[]>(supabase.from("project_people").select("*")),
+    run<TicketAssignment[]>(supabase.from("ticket_people").select("*")),
   ]);
-  return {
-    projects: projects.filter((p) => has(p.name, p.client, p.description)),
-    tasks: tasks.filter((t) => has(t.title)),
-    tickets: tickets.filter((t) => has(t.key, t.title, t.client, t.notes)),
-    people: people.filter((p) => has(p.name, p.role, p.email)),
-    resources: resources.filter((r) => has(r.title, r.url, r.notes)),
-  };
+  return { projects: withTaskProgress(projects, tasks), tasks, tickets, people, resources, milestones, projectPeople, ticketPeople };
 }
 
 // ---------- Writes ----------
