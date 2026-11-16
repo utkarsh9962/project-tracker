@@ -2,9 +2,13 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import * as api from "@/lib/api";
 import { formatDate, humanize, relativeDue } from "@/lib/format";
-import { TASK_STATUSES, TICKET_TYPES, type Task } from "@/lib/types";
+import { exportProjects } from "@/lib/export";
+import { TASK_STATUSES, TICKET_TYPES, type Attachment, type Task } from "@/lib/types";
 import { opt, optId, pct } from "@/lib/values";
-import { AutoSubmitSelect, ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
+import { BulkBar, BulkDate, BulkSelect, RowCheck, useSelection } from "@/components/bulk";
+import { ActionButton, AutoSubmitSelect, ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
+import { HistoryCard } from "@/components/history";
+import { Screenshots, ScreenshotsCard } from "@/components/screenshots";
 import { ProjectForm } from "@/components/forms/project-form";
 import { MilestonesCard } from "@/components/forms/milestones";
 import { ResourcesCard } from "@/components/forms/resources";
@@ -15,16 +19,28 @@ import { Badge, Button, Card, cx, DateChip, DueBadge, Empty, Input, LinkButton, 
 export function Projects() {
   useTitle("Projects");
   const filter = useProjectFilter();
+  const shown = (rows: Awaited<ReturnType<typeof api.listProjects>>) =>
+    rows.filter(
+      ({ project: p, managers }) =>
+        (!filter.status || p.status === filter.status) && (!filter.pm || managers.some((m) => m.id === filter.pm)) && (!filter.tag || p.tags.includes(filter.tag)),
+    );
   return (
     <>
-      <PageHeader title="Projects" actions={<LinkButton to="/projects/new">New project</LinkButton>} />
+      <PageHeader
+        title="Projects"
+        actions={
+          <>
+            <ActionButton busyLabel="Preparing…" onClick={async () => exportProjects(filter.active ? new Set(shown(await api.listProjects()).map((r) => r.project.id)) : undefined)}>
+              Export to Excel
+            </ActionButton>
+            <LinkButton to="/projects/new">New project</LinkButton>
+          </>
+        }
+      />
       <ProjectSlicers filter={filter} />
       <Load queryKey={["projects"]} fn={api.listProjects}>
         {(all) => {
-          const rows = all.filter(
-            ({ project: p, managers }) =>
-              (!filter.status || p.status === filter.status) && (!filter.pm || managers.some((m) => m.id === filter.pm)) && (!filter.tag || p.tags.includes(filter.tag)),
-          );
+          const rows = shown(all);
           return rows.length === 0 ? (
             <Empty>{filter.active ? "No projects match these filters." : "No projects yet."}</Empty>
           ) : (
@@ -131,9 +147,12 @@ export function ProjectDetail() {
   );
 }
 
-function ProjectBody({ project: p, tasks, team, managers, tickets, resources, milestones }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
+function ProjectBody({ project: p, tasks, team, managers, tickets, resources, milestones, attachments }: NonNullable<Awaited<ReturnType<typeof api.getProject>>>) {
   useTitle(p.name);
   const mutate = useMutate();
+  // Ticking a task line ticks every row behind it (one row per person it is given to).
+  const selection = useSelection(tasks.flat().map((t) => t.id));
+  const picked = tasks.filter((g) => selection.has(g[0].id));
   // Each entry is one task, possibly given to several people.
   const doneTasks = tasks.filter((g) => g[0].status === "done").length;
   const inProgressTasks = tasks.filter((g) => g[0].status === "in_progress").length;
@@ -197,13 +216,30 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
 
           <MilestonesCard projectId={p.id} milestones={milestones} />
 
-          <Card title={`Tasks (${tasks.length - doneTasks} open)`}>
+          <Card
+            title={`Tasks (${tasks.length - doneTasks} open)`}
+            actions={
+              tasks.length > 1 && (
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted">
+                  <RowCheck checked={selection.all} onChange={() => selection.setAll(!selection.all)} label="Select all tasks" />
+                  Select all
+                </label>
+              )
+            }
+          >
             {tasks.length === 0 ? (
               <Empty>No tasks yet.</Empty>
             ) : (
               <ul className="stagger divide-y divide-line/70">
                 {tasks.map((group) => (
-                  <TaskRow key={group[0].id} group={group} assigneeOptions={assigneeOptions} />
+                  <TaskRow
+                    key={group[0].id}
+                    group={group}
+                    assigneeOptions={assigneeOptions}
+                    checked={selection.has(group[0].id)}
+                    onCheck={() => selection.toggle(group.map((t) => t.id))}
+                    screenshots={attachments && attachments.filter((a) => a.task_id != null && group.some((t) => t.id === a.task_id))}
+                  />
                 ))}
               </ul>
             )}
@@ -249,9 +285,36 @@ function ProjectBody({ project: p, tasks, team, managers, tickets, resources, mi
 
         <div className="min-w-0 space-y-5">
           <TeamCard projectId={p.id} team={team} />
+          <ScreenshotsCard items={attachments && attachments.filter((a) => a.task_id == null)} target={{ project_id: p.id, task_id: null, ticket_id: null }} />
           <ResourcesCard resources={resources} target={{ project_id: p.id, ticket_id: null }} />
+          <HistoryCard projectId={p.id} />
         </div>
       </div>
+
+      <BulkBar count={picked.length} noun="task" onClear={selection.clear}>
+        <BulkSelect label="Set status" options={TASK_STATUSES.map((s) => ({ value: s, label: humanize(s) }))} onPick={(status) => mutate(() => api.updateTasks(selection.ids, { status: status as Task["status"] }))} />
+        <BulkSelect
+          label="Assign to"
+          options={[...assigneeOptions.filter((o) => o.value !== ""), { value: "none", label: "Nobody" }]}
+          onPick={(value) =>
+            mutate(async () => {
+              // A task shared by several people becomes one task for the person picked.
+              const spare = picked.flatMap((g) => g.slice(1));
+              for (const g of picked) await api.moveScreenshots(g.slice(1).map((t) => t.id), g[0].id);
+              await api.updateTasks(picked.map((g) => g[0].id), { assignee_id: value === "none" ? null : Number(value) });
+              if (spare.length) await api.deleteTasks(spare.map((t) => t.id));
+            })
+          }
+        />
+        <BulkDate label="Due" onPick={(due_date) => mutate(() => api.updateTasks(selection.ids, { due_date }))} />
+        <ConfirmButton
+          label="Delete"
+          onConfirm={async () => {
+            await mutate(() => api.deleteTasks(selection.ids));
+            selection.clear();
+          }}
+        />
+      </BulkBar>
     </>
   );
 }
@@ -262,9 +325,22 @@ type TaskWithAssignee = Task & { assignee: { name: string } | null };
 
 // One task line, listing everyone it is assigned to. Status, edits and delete apply to all of them.
 // Edit swaps it for an inline form to change the title, date and who it is assigned to.
-function TaskRow({ group, assigneeOptions }: { group: TaskWithAssignee[]; assigneeOptions: AssigneeOption[] }) {
+function TaskRow({
+  group,
+  assigneeOptions,
+  checked,
+  onCheck,
+  screenshots,
+}: {
+  group: TaskWithAssignee[];
+  assigneeOptions: AssigneeOption[];
+  checked: boolean;
+  onCheck: () => void;
+  screenshots: Attachment[] | null;
+}) {
   const mutate = useMutate();
   const [editing, setEditing] = useState(false);
+  const [showShots, setShowShots] = useState(false);
   const task = group[0];
   const ids = group.map((t) => t.id);
   const names = group.flatMap((t) => (t.assignee ? [t.assignee.name] : []));
@@ -285,7 +361,10 @@ function TaskRow({ group, assigneeOptions }: { group: TaskWithAssignee[]; assign
             await mutate(async () => {
               for (const t of [...keep, ...reused]) await api.updateTasks([t.id], { ...fields, assignee_id: t.assignee_id });
               await api.createTasks(missing.slice(reused.length).map((assignee_id) => ({ project_id: task.project_id, status: task.status, assignee_id, ...fields })));
-              if (spare.length) await api.deleteTasks(spare.map((t) => t.id));
+              if (spare.length) {
+                await api.moveScreenshots(spare.map((t) => t.id), [...keep, ...reused][0]?.id ?? task.id);
+                await api.deleteTasks(spare.map((t) => t.id));
+              }
             });
             setEditing(false);
           }}
@@ -316,7 +395,8 @@ function TaskRow({ group, assigneeOptions }: { group: TaskWithAssignee[]; assign
       </li>
     );
   return (
-    <li className="flex flex-wrap items-center gap-2 py-2.5">
+    <li className={cx("flex flex-wrap items-center gap-2 py-2.5", checked && "-mx-2 rounded-lg bg-accent/5 px-2")}>
+      <RowCheck checked={checked} onChange={onCheck} label={`Select ${task.title}`} />
       <AutoSubmitSelect
         value={task.status}
         options={TASK_STATUSES}
@@ -326,11 +406,39 @@ function TaskRow({ group, assigneeOptions }: { group: TaskWithAssignee[]; assign
       <span className={task.status === "done" ? "min-w-0 flex-1 text-sm text-muted line-through" : "min-w-0 flex-1 text-sm"}>{task.title}</span>
       {names.length > 0 && <span className="text-xs text-muted">{names.join(", ")}</span>}
       {task.status !== "done" && <DueBadge date={task.due_date} />}
+      {screenshots && (
+        <Button
+          type="button"
+          small
+          variant="ghost"
+          aria-expanded={showShots}
+          aria-label={`Screenshots for ${task.title}`}
+          title="Screenshots"
+          className={cx(screenshots.length > 0 && "text-accent-strong")}
+          onClick={() => setShowShots(!showShots)}
+        >
+          <CameraIcon />
+          {screenshots.length > 0 && screenshots.length}
+        </Button>
+      )}
       <Button type="button" small variant="ghost" onClick={() => setEditing(true)} aria-label={`Edit ${task.title}`}>
         Edit
       </Button>
       <ConfirmButton onConfirm={() => mutate(() => api.deleteTasks(ids))} />
+      {screenshots && showShots && (
+        <div className="basis-full rounded-xl bg-hover/60 p-3">
+          <Screenshots compact items={screenshots} target={{ project_id: task.project_id, task_id: task.id, ticket_id: null }} />
+        </div>
+      )}
     </li>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M4 8h3l1.5-2h7L17 8h3v11H4zM12 16.5a3 3 0 100-6 3 3 0 000 6z" />
+    </svg>
   );
 }
 

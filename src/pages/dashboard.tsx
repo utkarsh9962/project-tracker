@@ -2,7 +2,8 @@ import { Link } from "react-router";
 import { Load } from "@/components/query";
 import { ProjectSlicers, useProjectFilter } from "@/components/slicers";
 import { Badge, Card, DueBadge, Empty, LinkButton, ListSkeleton, PageHeader, Progress, StatusBadge, useTitle } from "@/components/ui";
-import { getDashboard } from "@/lib/api";
+import { HistoryList } from "@/components/history";
+import { getDashboard, QUIET_DAYS, WAITING_DAYS } from "@/lib/api";
 
 export function Dashboard() {
   useTitle("");
@@ -44,7 +45,7 @@ function Stat({ label, value, href, alert }: { label: string; value: number; hre
   );
 }
 
-function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaited<ReturnType<typeof getDashboard>>) {
+function DashboardBody({ stats, deadlines, openTickets, activeProjects, quiet }: Awaited<ReturnType<typeof getDashboard>>) {
   const isEmpty = activeProjects.length === 0 && openTickets.length === 0;
 
   return (
@@ -110,6 +111,48 @@ function DashboardBody({ stats, deadlines, openTickets, activeProjects }: Awaite
               ))}
             </ul>
           )}
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <Card
+          title={`Gone quiet${quiet.length ? ` · ${quiet.length}` : ""}`}
+          actions={
+            quiet.some((x) => x.kind === "Ticket") && (
+              <Link to="/tickets?quiet=1" className="text-xs text-accent">
+                Quiet tickets
+              </Link>
+            )
+          }
+        >
+          {quiet.length === 0 ? (
+            <Empty>Nothing has gone quiet. Every open project and ticket in progress has moved recently.</Empty>
+          ) : (
+            <>
+              <p className="mb-1 text-xs text-muted">
+                Open projects and tickets in progress with no change for {QUIET_DAYS}+ days, and tickets waiting for {WAITING_DAYS}+ days.
+              </p>
+              <ul className="stagger divide-y divide-line/70">
+                {quiet.slice(0, 8).map((x) => (
+                  <li key={`${x.kind}-${x.id}`}>
+                    <Link to={x.href} className="flex items-center gap-3 py-2.5 hover:opacity-80">
+                      <span className="w-14 shrink-0 text-xs text-muted">{x.kind}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{x.title}</span>
+                        {x.context && <span className="block truncate text-xs text-muted">{x.context}</span>}
+                      </span>
+                      <Badge value="soon" label={x.waiting ? `Waiting ${x.days}d` : `Quiet ${x.days}d`} />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              {quiet.length > 8 && <p className="mt-2 text-xs text-muted">And {quiet.length - 8} more.</p>}
+            </>
+          )}
+        </Card>
+
+        <Card title="Recent changes" actions={<Link to="/activity" className="text-xs text-accent">All changes</Link>}>
+          <HistoryList pageSize={6} context />
         </Card>
       </div>
 
