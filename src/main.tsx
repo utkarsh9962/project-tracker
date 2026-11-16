@@ -5,14 +5,18 @@ import { HashRouter, Route, Routes } from "react-router";
 import "./index.css";
 import { AuthGate } from "./components/auth";
 import { Layout } from "./components/layout";
+import { ActivityPage } from "./pages/activity";
 import { Dashboard } from "./pages/dashboard";
+import { ImportPage } from "./pages/import";
 import { Milestones } from "./pages/milestones";
 import { NewMenu } from "./pages/new";
 import { NotFound } from "./pages/not-found";
 import { EditPerson, People, PersonDetail } from "./pages/people";
 import { EditProject, NewProject, ProjectDetail, Projects } from "./pages/projects";
 import { Search } from "./pages/search";
+import { Timeline } from "./pages/timeline";
 import { EditTicket, NewTicket, TicketDetail, Tickets } from "./pages/tickets";
+import { Workload } from "./pages/workload";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 10_000, retry: 1, refetchOnWindowFocus: true } },
@@ -41,6 +45,10 @@ createRoot(document.getElementById("root")!).render(
               <Route path="people/:id" element={<PersonDetail />} />
               <Route path="people/:id/edit" element={<EditPerson />} />
               <Route path="search" element={<Search />} />
+              <Route path="timeline" element={<Timeline />} />
+              <Route path="workload" element={<Workload />} />
+              <Route path="import" element={<ImportPage />} />
+              <Route path="activity" element={<ActivityPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>

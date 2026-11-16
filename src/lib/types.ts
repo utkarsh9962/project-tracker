@@ -28,8 +28,10 @@ export type Project = {
   start_date: string | null;
   due_date: string | null;
   tags: string[];
+  created_at: string;
+  updated_at: string;
 };
-export type Task = { id: number; project_id: number; title: string; status: TaskStatus; due_date: string | null; assignee_id: number | null };
+export type Task = { id: number; project_id: number; title: string; status: TaskStatus; due_date: string | null; assignee_id: number | null; updated_at: string };
 export type Ticket = {
   id: number;
   key: string;
@@ -56,3 +58,29 @@ export type Resource = {
 export type Milestone = { id: number; project_id: number; title: string; due_date: string | null; done: boolean; created_at: string };
 export type Assignment = { project_id: number; person_id: number; role: string | null };
 export type TicketAssignment = { ticket_id: number; person_id: number };
+
+// One line of history, written by database triggers. `changes` holds { field: [before, after] } for an update.
+export type Activity = {
+  id: number;
+  at: string;
+  who: string | null;
+  entity: "project" | "task" | "ticket" | "milestone";
+  entity_id: number;
+  label: string;
+  project_id: number | null;
+  ticket_id: number | null;
+  action: "created" | "updated" | "deleted";
+  changes: Record<string, [unknown, unknown]>;
+};
+// A screenshot on a project, one of its tasks, or a ticket. `url` is a short-lived link to the image.
+export type Attachment = {
+  id: number;
+  project_id: number | null;
+  task_id: number | null;
+  ticket_id: number | null;
+  path: string;
+  name: string;
+  caption: string | null;
+  created_at: string;
+  url: string | null;
+};

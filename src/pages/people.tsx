@@ -3,7 +3,8 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import * as api from "@/lib/api";
 import { opt } from "@/lib/values";
-import { ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
+import { exportPeople } from "@/lib/export";
+import { ActionButton, ConfirmButton, Form, SubmitButton, useMutate } from "@/components/client";
 import { Load } from "@/components/query";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
 import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
@@ -15,7 +16,20 @@ export function People() {
   const mutate = useMutate();
   return (
     <>
-      <PageHeader title="People" subtitle="Who is working on what." />
+      <PageHeader
+        title="People"
+        subtitle="Who is working on what."
+        actions={
+          <>
+            <ActionButton busyLabel="Preparing…" onClick={() => exportPeople()}>
+              Export to Excel
+            </ActionButton>
+            <LinkButton to="/workload" variant="secondary">
+              Workload
+            </LinkButton>
+          </>
+        }
+      />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
           <ProjectSlicers filter={filter} statusLabel="Project status" extraKeys={["project"]}>

@@ -5,6 +5,7 @@ const OPTIONS = [
   { to: "/projects/new", title: "Project", text: "A piece of work with a client, deadline, team and tasks." },
   { to: "/tickets/new", title: "Ticket", text: "A ZST, NET, WP, MOB, CCMS or CMS ticket, linked to JIRA." },
   { to: "/people", title: "Person", text: "Someone you assign to projects." },
+  { to: "/import", title: "Tickets from Jira", text: "Bring many tickets in at once from a Jira export (Excel or CSV)." },
 ];
 
 export function NewMenu() {
@@ -12,7 +13,7 @@ export function NewMenu() {
   return (
     <>
       <PageHeader title="Add something" />
-      <ul className="grid gap-3 sm:grid-cols-3">
+      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {OPTIONS.map((o) => (
           <li key={o.to}>
             <Link to={o.to} className="block h-full rounded-2xl border border-line/80 bg-surface p-5 shadow-xs transition duration-200 ease-(--ease-out) hover:-translate-y-0.5 hover:shadow-md hover:shadow-slate-900/5">

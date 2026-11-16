@@ -138,3 +138,32 @@ export function ConfirmButton({ onConfirm, label = "Delete", small = true }: { o
     </span>
   );
 }
+
+// A button for a slow one-off job (an export, say): shows it is working and reports a failure beside itself.
+export function ActionButton({ onClick, children, busyLabel = "Working…", variant = "secondary" }: { onClick: () => Promise<unknown>; children: ReactNode; busyLabel?: string; variant?: "primary" | "secondary" }) {
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <>
+      {error && <span className="self-center text-xs text-red-600" role="alert">{error}</span>}
+      <button
+        type="button"
+        disabled={pending}
+        className={buttonClass(variant)}
+        onClick={async () => {
+          setPending(true);
+          setError(null);
+          try {
+            await onClick();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "That didn’t work.");
+          } finally {
+            setPending(false);
+          }
+        }}
+      >
+        {pending ? busyLabel : children}
+      </button>
+    </>
+  );
+}

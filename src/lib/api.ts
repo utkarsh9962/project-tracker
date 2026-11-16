@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
 import { matches, type SearchData } from "./search";
-import { PLATFORM_TAGS, type Assignment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
+import { PLATFORM_TAGS, type Activity, type Assignment, type Attachment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
 // Row types come from src/lib/types.ts rather than generated database types, hence the cast.
@@ -17,6 +17,17 @@ const byDue = (a: { due_date: string | null }, b: { due_date: string | null }) =
 export const isOpenTicket = (t: Pick<Ticket, "status">) => t.status !== "resolved" && t.status !== "closed";
 
 type WithProject<T> = T & { project: { name: string } | null };
+
+// Work counts as "gone quiet" after this many days without a change; a waiting ticket sooner.
+export const QUIET_DAYS = 14;
+export const WAITING_DAYS = 7;
+export const daysSince = (timestamp: string) => Math.floor((Date.now() - Date.parse(timestamp)) / 86_400_000);
+// Days a ticket has sat untouched, or 0 while that is still fine. Tickets nobody has started are left alone.
+export function quietTicketDays(t: Pick<Ticket, "status" | "updated_at">) {
+  const days = daysSince(t.updated_at);
+  if (t.status === "waiting") return days >= WAITING_DAYS ? days : 0;
+  return t.status === "in_progress" && days >= QUIET_DAYS ? days : 0;
+}
 
 // A project with tasks shows progress from them: a done task counts fully, an in-progress task counts half.
 // Projects without tasks keep the percentage typed in by hand.
@@ -43,7 +54,7 @@ export async function getDashboard(keep: (projectId: number | null) => boolean =
     run<Project[]>(supabase.from("projects").select("*").neq("status", "done")),
     run<WithProject<Ticket>[]>(supabase.from("tickets").select("*, project:projects(name)").not("status", "in", "(resolved,closed)")),
     run<WithProject<Task>[]>(supabase.from("tasks").select("*, project:projects(name)").neq("status", "done").not("due_date", "is", null).lte("due_date", soon)),
-    run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status")),
+    run<Pick<Task, "project_id" | "status" | "updated_at">[]>(supabase.from("tasks").select("project_id, status, updated_at")),
   ]);
   const projects = withTaskProgress(allProjects.filter((p) => keep(p.id)), taskStates);
   const tickets = allTickets.filter((t) => keep(t.project_id));
@@ -57,10 +68,30 @@ export async function getDashboard(keep: (projectId: number | null) => boolean =
     ...openTickets.filter((t) => t.due_date && t.due_date <= soon).map((t) => ({ kind: "Ticket" as const, id: t.id, title: `${t.key} ${t.title}`, due: t.due_date!, href: `/tickets/${t.id}`, context: t.client })),
   ].sort((a, b) => a.due.localeCompare(b.due));
 
+  // Gone quiet: open projects where neither the project, its tasks nor its tickets changed for a while,
+  // and tickets that are being worked on (or waiting) without any change.
+  const latest = new Map<number, string>();
+  const touch = (projectId: number | null, at: string) => {
+    if (projectId != null && at > (latest.get(projectId) ?? "")) latest.set(projectId, at);
+  };
+  for (const t of taskStates) touch(t.project_id, t.updated_at);
+  for (const t of allTickets) touch(t.project_id, t.updated_at);
+  const quiet = [
+    ...activeProjects
+      .map((p) => ({ p, days: daysSince(latest.get(p.id) && latest.get(p.id)! > p.updated_at ? latest.get(p.id)! : p.updated_at) }))
+      .filter(({ days }) => days >= QUIET_DAYS)
+      .map(({ p, days }) => ({ kind: "Project" as const, id: p.id, title: p.name, context: p.client, href: `/projects/${p.id}`, days, waiting: false })),
+    ...openTickets
+      .map((t) => ({ t, days: quietTicketDays(t) }))
+      .filter(({ days }) => days > 0)
+      .map(({ t, days }) => ({ kind: "Ticket" as const, id: t.id, title: `${t.key} ${t.title}`, context: t.client, href: `/tickets/${t.id}`, days, waiting: t.status === "waiting" })),
+  ].sort((a, b) => b.days - a.days);
+
   return {
     activeProjects,
     openTickets,
     deadlines,
+    quiet,
     stats: {
       activeProjects: projects.filter((p) => p.status === "active").length,
       openTickets: openTickets.length,
@@ -112,12 +143,13 @@ export const PM_ROLE = "Project manager";
 export async function getProject(id: number) {
   const project = await run<Project | null>(supabase.from("projects").select("*").eq("id", id).maybeSingle());
   if (!project) return null;
-  const [tasks, team, tickets, resources, milestones] = await Promise.all([
+  const [tasks, team, tickets, resources, milestones, attachments] = await Promise.all([
     run<(Task & { assignee: { name: string } | null })[]>(supabase.from("tasks").select("*, assignee:people(name)").eq("project_id", id).order("id")),
     run<{ role: string | null; person: Person }[]>(supabase.from("project_people").select("role, person:people(*)").eq("project_id", id)),
     run<Ticket[]>(supabase.from("tickets").select("*").eq("project_id", id).order("updated_at", { ascending: false })),
     run<Resource[]>(supabase.from("resources").select("*").eq("project_id", id).order("created_at", { ascending: false })),
     run<Milestone[]>(supabase.from("milestones").select("*").eq("project_id", id).order("id")),
+    listAttachments("project_id", id),
   ]);
   return {
     project: withProgress(project, tasks),
@@ -127,6 +159,7 @@ export async function getProject(id: number) {
     tickets: tickets.sort(byPriority),
     resources,
     milestones: milestones.sort(byMilestone),
+    attachments,
   };
 }
 
@@ -160,11 +193,12 @@ export async function listTickets(filter: { status: string; q: string }) {
 export async function getTicket(id: number) {
   const ticket = await run<WithProject<Ticket> | null>(supabase.from("tickets").select("*, project:projects(name)").eq("id", id).maybeSingle());
   if (!ticket) return null;
-  const [resources, people] = await Promise.all([
+  const [resources, attachments, people] = await Promise.all([
     run<Resource[]>(supabase.from("resources").select("*").eq("ticket_id", id).order("created_at", { ascending: false })),
+    listAttachments("ticket_id", id),
     run<{ person: Pick<Person, "id" | "name" | "role"> }[]>(supabase.from("ticket_people").select("person:people(id, name, role)").eq("ticket_id", id)),
   ]);
-  return { ticket, resources, people: people.map((p) => p.person).sort((a, b) => a.name.localeCompare(b.name)) };
+  return { ticket, resources, attachments, people: people.map((p) => p.person).sort((a, b) => a.name.localeCompare(b.name)) };
 }
 
 // The tickets a person works on, open ones first, most urgent first.
@@ -258,9 +292,106 @@ export async function searchData(): Promise<SearchData> {
   return { projects: withTaskProgress(projects, tasks), tasks, tickets, people, resources, milestones, projectPeople, ticketPeople };
 }
 
+// ---------- Timeline, workload, history, screenshots ----------
+
+// Every project with its milestones, for the Timeline page.
+export async function getTimeline() {
+  const [projects, tasks, milestones] = await Promise.all([
+    run<Project[]>(supabase.from("projects").select("*")),
+    run<Pick<Task, "project_id" | "status">[]>(supabase.from("tasks").select("project_id, status")),
+    run<Milestone[]>(supabase.from("milestones").select("*")),
+  ]);
+  return withTaskProgress(projects, tasks).map((project) => ({ project, milestones: milestones.filter((m) => m.project_id === project.id) }));
+}
+
+// How much open work each person carries: open tasks and open tickets, with what is late or due this week.
+export async function getWorkload() {
+  const now = today();
+  const soon = addDays(now, 7);
+  const [people, tasks, ticketPeople, projectPeople] = await Promise.all([
+    run<Person[]>(supabase.from("people").select("*").order("name")),
+    run<Pick<Task, "assignee_id" | "due_date" | "project_id">[]>(supabase.from("tasks").select("assignee_id, due_date, project_id").neq("status", "done").not("assignee_id", "is", null)),
+    run<{ person_id: number; ticket: Pick<Ticket, "id" | "status" | "due_date" | "project_id"> }[]>(supabase.from("ticket_people").select("person_id, ticket:tickets(id, status, due_date, project_id)")),
+    run<{ person_id: number; project: Pick<Project, "id" | "status"> }[]>(supabase.from("project_people").select("person_id, project:projects(id, status)")),
+  ]);
+  return people.map((person) => {
+    const myTasks = tasks.filter((t) => t.assignee_id === person.id);
+    const myTickets = ticketPeople.filter((t) => t.person_id === person.id && isOpenTicket(t.ticket)).map((t) => t.ticket);
+    const due = [...myTasks, ...myTickets].flatMap((x) => (x.due_date ? [x.due_date] : []));
+    return {
+      person,
+      projectIds: [...new Set([...projectPeople.filter((a) => a.person_id === person.id && a.project.status !== "done").map((a) => a.project.id), ...myTasks.map((t) => t.project_id)])],
+      tasks: myTasks.length,
+      tickets: myTickets.length,
+      load: myTasks.length + myTickets.length,
+      overdue: due.filter((d) => d < now).length,
+      dueSoon: due.filter((d) => d >= now && d <= soon).length,
+    };
+  });
+}
+export type WorkloadRow = Awaited<ReturnType<typeof getWorkload>>[number];
+
+// History and screenshots arrive with a database update (supabase/migrations/20261116000000_history_and_screenshots.sql).
+// Until it has been run these return null, and the pages say so instead of failing.
+const notSetUp = (message: string) => /does not exist|could not find|schema cache|bucket not found/i.test(message);
+
+export async function listActivity(filter: { projectId?: number; ticketId?: number; limit?: number } = {}): Promise<Activity[] | null> {
+  let query = supabase.from("activity").select("*").order("at", { ascending: false }).order("id", { ascending: false }).limit(filter.limit ?? 30);
+  if (filter.projectId != null) query = query.eq("project_id", filter.projectId);
+  if (filter.ticketId != null) query = query.eq("ticket_id", filter.ticketId);
+  const { data, error } = await query;
+  if (error && notSetUp(error.message)) return null;
+  if (error) throw new Error(error.message);
+  return data as Activity[];
+}
+
+// Names and emails, to show who made a change and who a task was given to.
+export const peopleDirectory = () => run<Pick<Person, "id" | "name" | "email">[]>(supabase.from("people").select("id, name, email"));
+
+const BUCKET = "screenshots";
+
+async function listAttachments(column: "project_id" | "ticket_id", id: number): Promise<Attachment[] | null> {
+  const { data, error } = await supabase.from("attachments").select("*").eq(column, id).order("created_at", { ascending: false });
+  if (error && notSetUp(error.message)) return null;
+  if (error) throw new Error(error.message);
+  const rows = data as Omit<Attachment, "url">[];
+  if (rows.length === 0) return [];
+  // The bucket is private, so each image is shown through a link that works for an hour.
+  const signed = await supabase.storage.from(BUCKET).createSignedUrls(rows.map((r) => r.path), 3600);
+  const urls = new Map((signed.data ?? []).map((s) => [s.path, s.signedUrl]));
+  return rows.map((r) => ({ ...r, url: urls.get(r.path) ?? null }));
+}
+
+const IMAGE_TYPES: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+export async function addScreenshot(target: Pick<Attachment, "project_id" | "task_id" | "ticket_id">, file: File, caption: string | null) {
+  const ext = IMAGE_TYPES[file.type];
+  if (!ext) throw new Error("Only images can be added here (PNG, JPG, WebP or GIF).");
+  if (file.size > MAX_IMAGE_BYTES) throw new Error("That image is over 5 MB. Crop it or save it smaller, then try again.");
+  const path = `${crypto.randomUUID()}.${ext}`;
+  const uploaded = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type });
+  if (uploaded.error) throw new Error(notSetUp(uploaded.error.message) ? "Screenshots aren’t set up yet. Run the latest database update in Supabase first." : uploaded.error.message);
+  try {
+    await run(supabase.from("attachments").insert({ ...target, path, name: file.name || `screenshot.${ext}`, caption }));
+  } catch (err) {
+    await supabase.storage.from(BUCKET).remove([path]);
+    throw err;
+  }
+}
+export const updateScreenshot = (id: number, caption: string | null) => run(supabase.from("attachments").update({ caption }).eq("id", id));
+export async function deleteScreenshot(a: Pick<Attachment, "id" | "path">) {
+  await run(supabase.from("attachments").delete().eq("id", a.id));
+  await supabase.storage.from(BUCKET).remove([a.path]);
+}
+// Before task rows are removed, their screenshots move to a row that stays (see TaskRow). Quietly does nothing before set-up.
+export async function moveScreenshots(fromTaskIds: number[], toTaskId: number) {
+  if (fromTaskIds.length) await supabase.from("attachments").update({ task_id: toTaskId }).in("task_id", fromTaskIds);
+}
+
 // ---------- Writes ----------
 
-export type ProjectInput = Omit<Project, "id" | "tags">;
+export type ProjectInput = Omit<Project, "id" | "tags" | "created_at" | "updated_at">;
 export type TicketInput = Omit<Ticket, "id" | "updated_at">;
 export type PersonInput = Omit<Person, "id" | "jira_filter"> & { jira_filter?: string | null };
 export type ResourceInput = Omit<Resource, "id" | "created_at">;
@@ -268,7 +399,16 @@ export type ResourceInput = Omit<Resource, "id" | "created_at">;
 export const createProject = (v: ProjectInput) => run<{ id: number }>(supabase.from("projects").insert(v).select("id").single());
 export const updateProject = (id: number, v: Partial<Omit<Project, "id">>) =>
   run(supabase.from("projects").update(v.progress != null && v.progress >= 100 ? { ...v, status: "done" } : v).eq("id", id));
-export const deleteProject = (id: number) => run(supabase.from("projects").delete().eq("id", id));
+export const deleteProject = (id: number) => withImageCleanup("project_id", [id], () => run(supabase.from("projects").delete().eq("id", id)));
+
+// Deleting a project, task or ticket also deletes its screenshots' rows; this removes the image files as well.
+async function withImageCleanup<T>(column: "project_id" | "task_id" | "ticket_id", ids: number[], remove: () => Promise<T>): Promise<T> {
+  const { data } = await supabase.from("attachments").select("path").in(column, ids);
+  const result = await remove();
+  const paths = ((data ?? []) as { path: string }[]).map((a) => a.path);
+  if (paths.length) await supabase.storage.from(BUCKET).remove(paths);
+  return result;
+}
 
 // Keeps a project's saved status in step with its progress: 100% completes it, dropping below reopens it.
 async function syncStatus(projectId: number) {
@@ -281,7 +421,7 @@ async function syncStatus(projectId: number) {
   if (status !== project.status) await run(supabase.from("projects").update({ status }).eq("id", projectId));
 }
 
-export async function createTasks(v: (Omit<Task, "id" | "status"> & Partial<Pick<Task, "status">>)[]) {
+export async function createTasks(v: (Omit<Task, "id" | "status" | "updated_at"> & Partial<Pick<Task, "status">>)[]) {
   if (v.length === 0) return;
   await run(supabase.from("tasks").insert(v));
   await syncStatus(v[0].project_id);
@@ -291,7 +431,7 @@ export async function updateTasks(ids: number[], v: Partial<Task>) {
   if (rows[0]) await syncStatus(rows[0].project_id);
 }
 export async function deleteTasks(ids: number[]) {
-  const rows = await run<Pick<Task, "project_id">[]>(supabase.from("tasks").delete().in("id", ids).select("project_id"));
+  const rows = await withImageCleanup("task_id", ids, () => run<Pick<Task, "project_id">[]>(supabase.from("tasks").delete().in("id", ids).select("project_id")));
   if (rows[0]) await syncStatus(rows[0].project_id);
 }
 export async function setProgress(projectId: number, progress: number) {
@@ -309,7 +449,11 @@ export const unassignTicket = (ticketId: number, personId: number) =>
 
 export const createTicket = (v: TicketInput) => run<{ id: number }>(supabase.from("tickets").insert(v).select("id").single());
 export const updateTicket = (id: number, v: Partial<TicketInput>) => run(supabase.from("tickets").update(v).eq("id", id));
-export const deleteTicket = (id: number) => run(supabase.from("tickets").delete().eq("id", id));
+export const deleteTicket = (id: number) => withImageCleanup("ticket_id", [id], () => run(supabase.from("tickets").delete().eq("id", id)));
+// Bulk edit: the same change on every ticket picked.
+export const updateTickets = (ids: number[], v: Partial<TicketInput>) => run(supabase.from("tickets").update(v).in("id", ids));
+export const assignTickets = (ids: number[], personId: number) =>
+  run(supabase.from("ticket_people").upsert(ids.map((ticket_id) => ({ ticket_id, person_id: personId })), { ignoreDuplicates: true }));
 
 // Links a ticket to a project by key, creating it when the key is new.
 export async function linkTicket(projectId: number, key: string, title: string) {

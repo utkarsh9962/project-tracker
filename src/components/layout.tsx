@@ -6,13 +6,15 @@ import { buttonClass, cx, Logo } from "./ui";
 
 export function Layout() {
   const { pathname } = useLocation();
+  // The timeline is a wide chart, so it gets the whole window.
+  const width = pathname.startsWith("/timeline") ? "max-w-[112rem]" : "max-w-6xl";
   return (
-    <div className="min-h-dvh pb-28 md:pb-10">
+    <div className="min-h-dvh pb-28 lg:pb-10">
       <header className="sticky top-0 z-20 border-b border-line/70 bg-white/75 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-4 px-4">
           <Link to="/" className="flex items-center gap-2.5 font-semibold tracking-tight">
             <Logo />
-            <span className="hidden sm:inline">Project Tracker</span>
+            <span className="hidden sm:inline lg:hidden xl:inline">Project Tracker</span>
           </Link>
           <TopNav />
           <div className="ml-auto flex items-center gap-2">
@@ -26,7 +28,7 @@ export function Layout() {
           </div>
         </div>
       </header>
-      <main key={pathname} className="animate-enter mx-auto max-w-6xl px-4 py-8">
+      <main key={pathname} className={cx("animate-enter mx-auto px-4 py-8", width)}>
         <Outlet />
       </main>
       <BottomNav />

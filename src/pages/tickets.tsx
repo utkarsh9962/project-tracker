@@ -2,8 +2,11 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import * as api from "@/lib/api";
 import { matches } from "@/lib/search";
 import { formatDate, humanize } from "@/lib/format";
-import { PRIORITIES, TICKET_STATUSES, TICKET_TYPES, ticketType, type TicketStatus } from "@/lib/types";
+import { PRIORITIES, TICKET_STATUSES, TICKET_TYPES, ticketType, type Priority, type TicketStatus } from "@/lib/types";
+import { BulkBar, BulkDate, BulkSelect, RowCheck, useSelection } from "@/components/bulk";
 import { AutoSubmitSelect, ConfirmButton, useMutate } from "@/components/client";
+import { HistoryCard } from "@/components/history";
+import { ScreenshotsCard } from "@/components/screenshots";
 import { ResourcesCard } from "@/components/forms/resources";
 import { TicketForm } from "@/components/forms/ticket-form";
 import { Load } from "@/components/query";
@@ -12,7 +15,7 @@ import { Badge, Card, cx, DueBadge, Empty, inputClass, LinkButton, PageHeader, s
 
 const STATUS_OPTIONS = [...TICKET_STATUSES.map((s) => ({ value: s, label: humanize(s) })), { value: "all", label: "Everything" }];
 const PRIORITY_OPTIONS = [...PRIORITIES].reverse().map((p) => ({ value: p, label: humanize(p) }));
-const TICKET_KEYS = ["type", "status", "priority", "client", "person"];
+const TICKET_KEYS = ["type", "status", "priority", "client", "person", "quiet"];
 
 export function Tickets() {
   useTitle("Tickets");
@@ -23,12 +26,22 @@ export function Tickets() {
   const priority = filter.get("priority");
   const client = filter.get("client");
   const person = Number(filter.get("person")) || 0;
+  const quiet = filter.get("quiet");
   const q = filter.get("q");
   const mutate = useMutate();
 
   return (
     <>
-      <PageHeader title="Tickets" subtitle="ZSTs and other JIRA tickets (NET, WP, MOB, CCMS, CMS…) tied to your projects." actions={<LinkButton to="/tickets/new">New ticket</LinkButton>} />
+      <PageHeader title="Tickets" subtitle="ZSTs and other JIRA tickets (NET, WP, MOB, CCMS, CMS…) tied to your projects." 
+        actions={
+          <>
+            <LinkButton to="/import" variant="secondary">
+              Import from Jira
+            </LinkButton>
+            <LinkButton to="/tickets/new">New ticket</LinkButton>
+          </>
+        }
+      />
       <input
         type="search"
         defaultValue={q}
@@ -49,6 +62,7 @@ export function Tickets() {
               (!priority || t.priority === priority) &&
               (!client || t.client === client) &&
               (!person || t.people.some((p) => p.id === person)) &&
+              (!quiet || api.quietTicketDays(t) > 0) &&
               filter.keep(t.project_id) &&
               matches(q, t.key, t.title, t.client, t.project?.name, ...t.people.map((p) => p.name)),
           );
@@ -60,6 +74,7 @@ export function Tickets() {
                 <Slicer label="Priority" value={priority} options={PRIORITY_OPTIONS} onChange={(v) => filter.set("priority", v)} />
                 <Slicer label="Client" value={client} options={clients.map((c) => ({ value: c, label: c }))} onChange={(v) => filter.set("client", v)} />
                 <Slicer label="Person" value={person} options={people.map(([id, name]) => ({ value: String(id), label: name }))} onChange={(v) => filter.set("person", v)} />
+                <Slicer label="Activity" value={quiet} options={[{ value: "1", label: "Gone quiet" }]} onChange={(v) => filter.set("quiet", v)} />
               </ProjectSlicers>
               <TicketList rows={rows} mutate={mutate} />
             </>
@@ -71,12 +86,42 @@ export function Tickets() {
 }
 
 function TicketList({ rows, mutate }: { rows: Awaited<ReturnType<typeof api.listTickets>>; mutate: ReturnType<typeof useMutate> }) {
-  return rows.length === 0 ? (
-    <Empty>No tickets match.</Empty>
-  ) : (
+  const selection = useSelection(rows.map((t) => t.id));
+  if (rows.length === 0) return <Empty>No tickets match.</Empty>;
+  return (
+    <>
+      <label className="mb-2 flex w-fit cursor-pointer items-center gap-2 px-4 text-xs text-muted">
+        <RowCheck checked={selection.all} onChange={() => selection.setAll(!selection.all)} label="Select all tickets shown" />
+        Select all {rows.length} shown, to change them together
+      </label>
+      <TicketRows rows={rows} mutate={mutate} selection={selection} />
+      <BulkBar count={selection.ids.length} noun="ticket" onClear={selection.clear}>
+        <BulkSelect label="Set status" options={TICKET_STATUSES.map((s) => ({ value: s, label: humanize(s) }))} onPick={(v) => mutate(() => api.updateTickets(selection.ids, { status: v as TicketStatus }))} />
+        <BulkSelect label="Set priority" options={PRIORITY_OPTIONS} onPick={(v) => mutate(() => api.updateTickets(selection.ids, { priority: v as Priority }))} />
+        <Load queryKey={["people-options"]} fn={api.peopleOptions} rows={0}>
+          {(people) => <BulkSelect label="Assign to" options={people.map((p) => ({ value: p.id, label: p.name }))} onPick={(v) => mutate(() => api.assignTickets(selection.ids, Number(v)))} />}
+        </Load>
+        <Load queryKey={["project-options"]} fn={api.projectOptions} rows={0}>
+          {(projects) => (
+            <BulkSelect
+              label="Link to project"
+              options={[...projects.map((p) => ({ value: p.id, label: p.name })), { value: "none", label: "No project" }]}
+              onPick={(v) => mutate(() => api.updateTickets(selection.ids, { project_id: v === "none" ? null : Number(v) }))}
+            />
+          )}
+        </Load>
+        <BulkDate label="Due" onPick={(due_date) => mutate(() => api.updateTickets(selection.ids, { due_date }))} />
+      </BulkBar>
+    </>
+  );
+}
+
+function TicketRows({ rows, mutate, selection }: { rows: Awaited<ReturnType<typeof api.listTickets>>; mutate: ReturnType<typeof useMutate>; selection: ReturnType<typeof useSelection> }) {
+  return (
     <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
       {rows.map((t) => (
-        <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3">
+        <li key={t.id} className={cx("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3", selection.has(t.id) && "bg-accent/5")}>
+          <RowCheck checked={selection.has(t.id)} onChange={() => selection.toggle([t.id])} label={`Select ${t.key}`} />
           <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
             <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
             <span className="min-w-0">
@@ -88,6 +133,7 @@ function TicketList({ rows, mutate }: { rows: Awaited<ReturnType<typeof api.list
             </span>
           </Link>
           <div className="flex items-center gap-1.5">
+            {api.quietTicketDays(t) > 0 && <Badge value="soon" label={`Quiet ${api.quietTicketDays(t)}d`} />}
             <Badge value={t.priority} />
             {api.isOpenTicket(t) && <DueBadge date={t.due_date} />}
             <AutoSubmitSelect
@@ -176,7 +222,7 @@ export function TicketDetail() {
   );
 }
 
-function TicketBody({ ticket: t, resources, people }: NonNullable<Awaited<ReturnType<typeof api.getTicket>>>) {
+function TicketBody({ ticket: t, resources, attachments, people }: NonNullable<Awaited<ReturnType<typeof api.getTicket>>>) {
   useTitle(t.key);
   const mutate = useMutate();
   const jira = safeHref(t.url);
@@ -223,8 +269,12 @@ function TicketBody({ ticket: t, resources, people }: NonNullable<Awaited<Return
             {t.notes ? <p className="mt-4 whitespace-pre-wrap text-sm">{t.notes}</p> : <p className="mt-4 text-sm text-muted">No notes yet.</p>}
           </Card>
           <TicketPeopleCard ticketId={t.id} people={people} />
+          <ScreenshotsCard items={attachments} target={{ project_id: null, task_id: null, ticket_id: t.id }} />
         </div>
-        <ResourcesCard resources={resources} target={{ project_id: null, ticket_id: t.id }} />
+        <div className="min-w-0 space-y-5">
+          <ResourcesCard resources={resources} target={{ project_id: null, ticket_id: t.id }} />
+          <HistoryCard ticketId={t.id} />
+        </div>
       </div>
     </>
   );
