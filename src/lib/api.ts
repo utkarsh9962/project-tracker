@@ -455,6 +455,15 @@ export const updateTickets = (ids: number[], v: Partial<TicketInput>) => run(sup
 export const assignTickets = (ids: number[], personId: number) =>
   run(supabase.from("ticket_people").upsert(ids.map((ticket_id) => ({ ticket_id, person_id: personId })), { ignoreDuplicates: true }));
 
+// New ticket made from a person's page: created and given to them in one go.
+// If the key is already tracked, that ticket is given to them instead of making a duplicate.
+export async function createTicketFor(personId: number, v: TicketInput) {
+  const existing = await run<Pick<Ticket, "id">[]>(supabase.from("tickets").select("id").ilike("key", v.key).limit(1));
+  const id = existing[0]?.id ?? (await createTicket(v)).id;
+  await assignTicket({ ticket_id: id, person_id: personId });
+  return { id, existed: Boolean(existing[0]) };
+}
+
 // Links a ticket to a project by key, creating it when the key is new.
 export async function linkTicket(projectId: number, key: string, title: string) {
   const existing = await run<Pick<Ticket, "id">[]>(supabase.from("tickets").select("id").ilike("key", key).limit(1));
