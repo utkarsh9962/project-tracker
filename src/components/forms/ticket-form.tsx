@@ -3,7 +3,7 @@ import type { TicketInput } from "@/lib/api";
 import { PRIORITIES, TICKET_STATUSES, TICKET_TYPES, ticketType, type Ticket } from "@/lib/types";
 import { opt, optId, url } from "@/lib/values";
 import { Form, SubmitButton } from "@/components/client";
-import { Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
+import { buttonClass, Field, Input, LinkButton, Select, Textarea } from "@/components/ui";
 
 export function TicketForm({
   onSave,
@@ -11,16 +11,21 @@ export function TicketForm({
   projects,
   defaultProjectId,
   cancelTo,
+  onCancel,
+  className,
 }: {
   onSave: (v: TicketInput) => Promise<void>;
   ticket?: Ticket;
   projects: { id: number; name: string }[];
   defaultProjectId?: number;
-  cancelTo: string;
+  cancelTo?: string;
+  // Shown inline (e.g. on a person's page): Cancel closes the form instead of leaving the page.
+  onCancel?: () => void;
+  className?: string;
 }) {
   return (
     <Form
-      className="grid gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs sm:grid-cols-2"
+      className={className ?? "grid gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs sm:grid-cols-2"}
       onSubmit={(v) =>
         onSave({
           key: v.key.toUpperCase(),
@@ -66,9 +71,15 @@ export function TicketForm({
       </Field>
       <div className="flex gap-2 sm:col-span-2">
         <SubmitButton>{ticket ? "Save changes" : "Create ticket"}</SubmitButton>
-        <LinkButton to={cancelTo} variant="secondary">
-          Cancel
-        </LinkButton>
+        {onCancel ? (
+          <button type="button" className={buttonClass("secondary")} onClick={onCancel}>
+            Cancel
+          </button>
+        ) : (
+          <LinkButton to={cancelTo ?? "/tickets"} variant="secondary">
+            Cancel
+          </LinkButton>
+        )}
       </div>
     </Form>
   );
