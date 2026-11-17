@@ -45,7 +45,7 @@ export function Timeline() {
     <>
       <PageHeader
         title="Timeline"
-        subtitle="Every project as a bar from its start to its target date. Diamonds are milestones."
+        subtitle="Every project as a bar from its start to its target date, nearest deadline first. Diamonds are milestones."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <div className="inline-flex rounded-full bg-hover p-1 text-xs font-medium">
@@ -81,10 +81,15 @@ export function Timeline() {
       <Load queryKey={["timeline"]} fn={api.getTimeline} rows={8}>
         {(all) => {
           const matching = all.filter(({ project: p }) => filter.keep(p.id)).map((r) => ({ ...r, ...span(r.project) }));
-          // In view: the bar touches this period. A project with no target date runs on from its start.
+          // In view: the bar touches this period. A project with no target date runs on from its start,
+          // and an open project past its target date stays in view until today (its red overdue stretch).
+          const reach = (r: Row) => (r.end == null ? "9999" : r.project.status !== "done" && r.end < now ? now : r.end);
+          // Most urgent first: open projects by target date (overdue ones lead), then open projects with
+          // no target date, then completed projects.
+          const group = (r: Row) => (r.project.status === "done" ? 2 : r.end == null ? 1 : 0);
           const rows = matching
-            .filter((r) => r.start <= to && (r.end ?? "9999") >= from)
-            .sort((a, b) => a.start.localeCompare(b.start) || (a.end ?? "9999").localeCompare(b.end ?? "9999") || a.project.name.localeCompare(b.project.name));
+            .filter((r) => r.start <= to && reach(r) >= from)
+            .sort((a, b) => group(a) - group(b) || (a.end ?? "9999").localeCompare(b.end ?? "9999") || a.project.name.localeCompare(b.project.name));
           const outside = matching.length - rows.length;
           if (matching.length === 0) return <Empty>{filter.active ? "No projects match these filters." : "No projects yet."}</Empty>;
           return (
