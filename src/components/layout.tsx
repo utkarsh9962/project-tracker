@@ -3,6 +3,7 @@ import { signOut } from "./auth";
 import { BottomNav, TopNav } from "./nav";
 import { HeaderSearch } from "./search";
 import { buttonClass, cx, Logo } from "./ui";
+import { Sparkle } from "@/pages/assistant";
 
 export function Layout() {
   const { pathname } = useLocation();
@@ -19,6 +20,18 @@ export function Layout() {
           <TopNav />
           <div className="ml-auto flex items-center gap-2">
             <HeaderSearch />
+            <Link
+              to="/assistant"
+              title="AI assistant"
+              className={cx(
+                buttonClass("ghost", true),
+                "rounded-full px-3 py-1.5 text-accent",
+                pathname.startsWith("/assistant") && "bg-accent/10",
+              )}
+            >
+              <Sparkle />
+              <span className="hidden sm:inline">Assistant</span>
+            </Link>
             <Link to="/new" className={cx(buttonClass("primary", true), "rounded-full px-3.5 py-1.5")}>
               + New
             </Link>

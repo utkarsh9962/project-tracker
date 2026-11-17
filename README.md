@@ -15,6 +15,7 @@ The site is hosted for free on **GitHub Pages** and keeps your data in **Supabas
 - **People**: who's on which project and in what role, and a **Workload** page that flags who is overloaded or underloaded.
 - **Excel exports**: projects with the people on each, and people with their projects, tasks and tickets.
 - **Search** across projects, clients, people, tickets, tasks, milestones, tags, links and notes. It searches as you type and forgives typos and half-typed words.
+- **Assistant** (AI): ask questions about your work, or paste a Slack chat or email and get suggested tickets, assignments, tasks, notes and milestones. Nothing is saved until you tick the changes and press Apply.
 - Email and password login (Supabase Auth).
 
 Not yet: live JIRA sync, Slack/email capture, uploads of files other than screenshots.
@@ -38,6 +39,19 @@ Not yet: live JIRA sync, Slack/email capture, uploads of files other than screen
 3. Open **Actions > Deploy to GitHub Pages > Run workflow** (it also runs on every push to `main`).
 
 Your tracker will be at `https://<your-username>.github.io/project-tracker/`.
+
+### 3. AI assistant (optional)
+
+The assistant talks to a language model through a small Supabase function, so the model's API key stays hidden in Supabase. **Never put the key in this repository or in the GitHub variables above**: both are public.
+
+1. In Supabase, open **Edge Functions > Deploy a new function > Via Editor**. Name it `assistant`, replace the sample code with the contents of [`supabase/functions/assistant/index.ts`](supabase/functions/assistant/index.ts), and click **Deploy function**. Leave "Verify JWT" on.
+2. Open **Edge Functions > Secrets** and add:
+   - `LLM_API_KEY`: your API key
+   - `LLM_BASE_URL`: your provider's OpenAI-compatible address (default `https://api.openai.com/v1`)
+   - `LLM_MODEL`: the model name (default `gpt-4o-mini`)
+3. Open the **Assistant** button at the top of the tracker and ask it something.
+
+Only signed-in team members can use the function. Whatever you send it, plus a summary of your projects, people, open tickets, tasks and milestones, goes to the AI provider you choose.
 
 ## Run it locally
 

@@ -6,6 +6,7 @@ import "./index.css";
 import { AuthGate } from "./components/auth";
 import { Layout } from "./components/layout";
 import { ActivityPage } from "./pages/activity";
+import { AssistantPage } from "./pages/assistant";
 import { Dashboard } from "./pages/dashboard";
 import { ImportPage } from "./pages/import";
 import { Milestones } from "./pages/milestones";
@@ -49,6 +50,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="workload" element={<Workload />} />
               <Route path="import" element={<ImportPage />} />
               <Route path="activity" element={<ActivityPage />} />
+              <Route path="assistant" element={<AssistantPage />} />
               <Route path="*" element={<NotFound />} />
             </Route>
           </Routes>
