@@ -202,8 +202,8 @@ export async function getTicket(id: number) {
 }
 
 // The tickets a person works on, open ones first, most urgent first.
-type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id">;
-const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id";
+type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id" | "notes">;
+const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id, notes";
 const byTicketUrgency = (a: AssignedTicket, b: AssignedTicket) =>
   Number(!isOpenTicket(a)) - Number(!isOpenTicket(b)) || byPriority(a, b) || byDue(a, b) || a.key.localeCompare(b.key);
 

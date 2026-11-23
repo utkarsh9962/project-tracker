@@ -37,6 +37,7 @@ export function Workload() {
   const [limits, setLimits] = useState(readLimits);
   const level = filters.get("load");
   const role = filters.get("role");
+  const view = filters.get("view");
   const save = (next: typeof limits) => {
     setLimits(next);
     try {
@@ -67,9 +68,37 @@ export function Workload() {
           const max = Math.max(limits.over + 2, ...all.map((r) => r.load));
           const counts = { over: all.filter((r) => levelOf(r) === "over").length, under: all.filter((r) => levelOf(r) === "under").length };
           if (everyone.length === 0) return <Empty>No people yet. Add them on the People page.</Empty>;
+          const tabs = (
+            <div role="tablist" aria-label="Whose workload" className="mb-5 inline-flex gap-1 rounded-full border border-line/80 bg-surface p-1 shadow-xs">
+              <Tab on={view !== "qa"} onClick={() => filters.set("view", "")}>
+                Developers <Count n={all.length} title={`${all.length} people, ${counts.over} overloaded`} />
+              </Tab>
+              <Tab on={view === "qa"} onClick={() => filters.set("view", "qa")}>
+                QA workload <Count n={queue.length} tone={queue.length > 0 ? "queue" : undefined} title={`${queue.length} tickets waiting to be tested`} />
+              </Tab>
+            </div>
+          );
+          if (view === "qa")
+            return (
+              <>
+                {tabs}
+                <QaSection team={qaTeam} queue={queue} limits={limits} levelFor={levelFor} />
+              </>
+            );
           return (
             <>
-              <h2 className="mb-3 text-base font-semibold">Developers</h2>
+              {tabs}
+              {queue.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => filters.set("view", "qa")}
+                  className="mb-4 flex w-full items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-800 transition hover:border-amber-300"
+                >
+                  <span className="font-semibold tabular-nums">{queue.length}</span> ticket{queue.length === 1 ? " is" : "s are"} waiting for QA and not counted
+                  against developers.
+                  <span className="ml-auto font-medium">See QA workload →</span>
+                </button>
+              )}
               <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Tile label="Overloaded" value={counts.over} tone="text-red-600" onClick={() => filters.set("load", level === "over" ? "" : "over")} on={level === "over"} />
                 <Tile label="Underloaded" value={counts.under} tone="text-amber-600" onClick={() => filters.set("load", level === "under" ? "" : "under")} on={level === "under"} />
@@ -98,8 +127,6 @@ export function Workload() {
                 </ul>
               )}
               <Legend>The number on the right is the two added together. Tickets in testing are shown but not counted. The red line marks where overloaded starts.</Legend>
-
-              <QaSection team={qaTeam} queue={queue} limits={limits} levelFor={levelFor} />
             </>
           );
         }}
@@ -115,13 +142,14 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
   const byType = new Map<string, number>();
   for (const t of queue) byType.set(t.type, (byType.get(t.type) ?? 0) + 1);
   const types = [...byType].sort((a, b) => b[1] - a[1]);
-  const oldest = queue.length ? api.daysSince(queue[0].updated_at) : 0;
+  // Days since the ticket last changed in the tracker (an import that changes it counts), not since it entered testing in Jira.
+  const stale = queue.filter((t) => api.daysSince(t.updated_at) >= api.WAITING_DAYS).length;
   const rows = [...team].sort((a, b) => b.load - a.load || a.person.name.localeCompare(b.person.name));
   const max = Math.max(limits.over + 2, ...team.map((r) => r.load + share));
   const shown = showAll ? queue : queue.slice(0, QUEUE_SHOWN);
 
   return (
-    <section className="mt-10" aria-labelledby="qa-workload">
+    <section aria-labelledby="qa-workload">
       <h2 id="qa-workload" className="text-base font-semibold">
         QA workload
       </h2>
@@ -129,7 +157,7 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Tile label="Waiting to be tested" value={queue.length} tone="text-amber-600" />
         <Tile label={team.length ? `Each, shared across ${plural(team.length, "tester")}` : "Each (no QA team yet)"} value={share} />
-        <Tile label="Days the oldest has waited" value={oldest} tone={oldest >= api.WAITING_DAYS ? "text-red-600" : undefined} />
+        <Tile label={`Unchanged for ${api.WAITING_DAYS}+ days`} value={stale} tone="text-red-600" />
         <div className="rounded-2xl border border-line/80 bg-surface p-4 shadow-xs">
           <div className="flex flex-wrap gap-1.5">
             {types.length === 0 ? <span className="text-2xl font-semibold">0</span> : types.map(([type, n]) => <Badge key={type} value="waiting" label={`${type} ${n}`} />)}
@@ -159,7 +187,7 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
 
       {queue.length > 0 && (
         <div className="mt-6">
-          <h3 className="mb-2 text-sm font-semibold">Testing queue, longest waiting first</h3>
+          <h3 className="mb-2 text-sm font-semibold">Testing queue, longest unchanged first</h3>
           <ul className="divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
             {shown.map((t) => {
               const days = api.daysSince(t.updated_at);
@@ -172,7 +200,7 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
                     <span className="block truncate text-xs text-muted">{t.developers.length ? `Developer: ${t.developers.join(", ")}` : "No developer linked"}</span>
                   </Link>
                   <Badge value={t.priority} />
-                  <span className={cx("w-20 shrink-0 text-right text-xs tabular-nums", days >= api.WAITING_DAYS ? "font-medium text-red-600" : "text-muted")}>{days === 0 ? "Today" : `${days}d waiting`}</span>
+                  <span className={cx("w-28 shrink-0 text-right text-xs tabular-nums", days >= api.WAITING_DAYS ? "font-medium text-red-600" : "text-muted")}>{days === 0 ? "Changed today" : `${days}d unchanged`}</span>
                 </li>
               );
             })}
@@ -223,6 +251,34 @@ function PersonRow({ row: r, max, over, level, extra = 0, total, children }: { r
         </span>
       </div>
     </li>
+  );
+}
+
+function Tab({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+      className={cx("inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition", on ? "bg-accent text-white shadow-sm" : "text-muted hover:text-fg")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Count({ n, tone, title }: { n: number; tone?: "over" | "queue"; title: string }) {
+  return (
+    <span
+      title={title}
+      className={cx(
+        "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+        tone === "queue" ? "bg-amber-100 text-amber-800" : tone === "over" ? "bg-red-100 text-red-700" : "bg-hover text-fg",
+      )}
+    >
+      {n}
+    </span>
   );
 }
 
