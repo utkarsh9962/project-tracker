@@ -23,7 +23,16 @@ export function useFilters() {
     for (const k of keys) next.delete(k);
     setParams(next, { replace: true });
   };
-  return { get, set, clear };
+  // Several keys at once (an empty value removes the key), so one change doesn't undo another.
+  const update = (values: Record<string, string>) => {
+    const next = new URLSearchParams(params);
+    for (const [k, v] of Object.entries(values)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
+    setParams(next, { replace: true });
+  };
+  return { get, set, clear, update };
 }
 
 // Project-level filters shared by every page: project status, PM and platform tag.

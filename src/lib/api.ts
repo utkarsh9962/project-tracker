@@ -313,6 +313,8 @@ export const isAwaitingQa = (t: Pick<Ticket, "key" | "status" | "notes">) =>
   isOpenTicket(t) && ticketType(t.key) !== "ZST" && /^jira:/i.test(t.notes ?? "") && QA_STATUS.test((t.notes ?? "").replace(/^jira:/i, ""));
 // QA people are the ones whose role says so: "QA", "QA Engineer", "Tester", "Testing"…
 export const isQaPerson = (p: Pick<Person, "role">) => /\b(qa|tester|testing|quality)\b/i.test(p.role ?? "");
+// Project managers are the people whose role is "Project manager" (or PM), the same role the PM filters use.
+export const isPmPerson = (p: Pick<Person, "role">) => /\b(project manager|pm)\b/i.test(p.role ?? "");
 
 type WorkloadTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "notes" | "priority" | "due_date" | "project_id" | "updated_at">;
 const WORKLOAD_TICKET = "id, key, title, status, notes, priority, due_date, project_id, updated_at";
@@ -324,7 +326,7 @@ export async function getWorkload() {
     run<Person[]>(supabase.from("people").select("*").order("name")),
     run<Pick<Task, "assignee_id" | "due_date" | "project_id">[]>(supabase.from("tasks").select("assignee_id, due_date, project_id").neq("status", "done").not("assignee_id", "is", null)),
     run<{ person_id: number; ticket: WorkloadTicket }[]>(supabase.from("ticket_people").select(`person_id, ticket:tickets(${WORKLOAD_TICKET})`)),
-    run<{ person_id: number; project: Pick<Project, "id" | "status"> }[]>(supabase.from("project_people").select("person_id, project:projects(id, status)")),
+    run<{ person_id: number; role: string | null; project: Pick<Project, "id" | "status"> }[]>(supabase.from("project_people").select("person_id, role, project:projects(id, status)")),
     run<WorkloadTicket[]>(supabase.from("tickets").select(WORKLOAD_TICKET).eq("status", "waiting")),
   ]);
   const developerOf = new Map<number, string[]>();
@@ -337,11 +339,15 @@ export async function getWorkload() {
     const open = ticketPeople.filter((t) => t.person_id === person.id && isOpenTicket(t.ticket)).map((t) => t.ticket);
     // Tickets in testing are shown but not counted against anyone: they sit in the QA queue, which isn't split per tester.
     const qa = isQaPerson(person);
+    const pm = !qa && isPmPerson(person);
     const myTickets = open.filter((t) => !isAwaitingQa(t));
     const due = [...myTasks, ...myTickets].flatMap((x) => (x.due_date ? [x.due_date] : []));
     return {
       person,
       qa,
+      pm,
+      // Open projects this person is the PM of.
+      managing: projectPeople.filter((a) => a.person_id === person.id && a.role === PM_ROLE && a.project.status !== "done").length,
       projectIds: [...new Set([...projectPeople.filter((a) => a.person_id === person.id && a.project.status !== "done").map((a) => a.project.id), ...myTasks.map((t) => t.project_id)])],
       tasks: myTasks.length,
       tickets: myTickets.length,
