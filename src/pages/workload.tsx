@@ -7,8 +7,8 @@ import { Badge, cx, Empty, PageHeader, useTitle } from "@/components/ui";
 
 // How much open work each person has. Someone is overloaded or underloaded when their open tasks and tickets
 // pass the limits set on this page; the limits are remembered in this browser.
-// Non-ZST tickets waiting to be tested are QA's work, not the developer's, so they are counted in the QA section
-// instead. The QA team is everyone whose role says QA (or Tester).
+// Non-ZST tickets in Ready for Testing are with QA, not the developer, so they are shown in the QA tab instead.
+// The QA team is everyone whose role says QA (or Tester). The testing queue is shown as a total, not split per tester.
 
 const KEY = "workload-limits";
 const DEFAULTS = { over: 8, under: 1 };
@@ -37,6 +37,7 @@ export function Workload() {
   const [limits, setLimits] = useState(readLimits);
   const level = filters.get("load");
   const role = filters.get("role");
+  const view = filters.get("view");
   const save = (next: typeof limits) => {
     setLimits(next);
     try {
@@ -67,9 +68,37 @@ export function Workload() {
           const max = Math.max(limits.over + 2, ...all.map((r) => r.load));
           const counts = { over: all.filter((r) => levelOf(r) === "over").length, under: all.filter((r) => levelOf(r) === "under").length };
           if (everyone.length === 0) return <Empty>No people yet. Add them on the People page.</Empty>;
+          const tabs = (
+            <div role="tablist" aria-label="Whose workload" className="mb-5 inline-flex gap-1 rounded-full border border-line/80 bg-surface p-1 shadow-xs">
+              <Tab on={view !== "qa"} onClick={() => filters.set("view", "")}>
+                Developers <Count n={all.length} title={`${all.length} people, ${counts.over} overloaded`} />
+              </Tab>
+              <Tab on={view === "qa"} onClick={() => filters.set("view", "qa")}>
+                QA workload <Count n={queue.length} tone={queue.length > 0 ? "queue" : undefined} title={`${queue.length} tickets waiting to be tested`} />
+              </Tab>
+            </div>
+          );
+          if (view === "qa")
+            return (
+              <>
+                {tabs}
+                <QaSection team={qaTeam} queue={queue} limits={limits} />
+              </>
+            );
           return (
             <>
-              <h2 className="mb-3 text-base font-semibold">Developers</h2>
+              {tabs}
+              {queue.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => filters.set("view", "qa")}
+                  className="mb-4 flex w-full items-center gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-800 transition hover:border-amber-300"
+                >
+                  <span className="font-semibold tabular-nums">{queue.length}</span> ticket{queue.length === 1 ? " is" : "s are"} waiting for QA and not counted
+                  against developers.
+                  <span className="ml-auto font-medium">See QA workload →</span>
+                </button>
+              )}
               <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Tile label="Overloaded" value={counts.over} tone="text-red-600" onClick={() => filters.set("load", level === "over" ? "" : "over")} on={level === "over"} />
                 <Tile label="Underloaded" value={counts.under} tone="text-amber-600" onClick={() => filters.set("load", level === "under" ? "" : "under")} on={level === "under"} />
@@ -98,8 +127,6 @@ export function Workload() {
                 </ul>
               )}
               <Legend>The number on the right is the two added together. Tickets in testing are shown but not counted. The red line marks where overloaded starts.</Legend>
-
-              <QaSection team={qaTeam} queue={queue} limits={limits} levelFor={levelFor} />
             </>
           );
         }}
@@ -108,28 +135,29 @@ export function Workload() {
   );
 }
 
-// The QA team's own tasks and tickets, plus an even share of the tickets waiting to be tested.
-function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[]; queue: api.QaQueueTicket[]; limits: { over: number; under: number }; levelFor: (n: number) => Level }) {
+// The QA team's own tasks and tickets, and the tickets waiting to be tested. The queue is not split between testers:
+// who tests what isn't recorded anywhere yet, so the page doesn't guess.
+function QaSection({ team, queue, limits }: { team: api.WorkloadRow[]; queue: api.QaQueueTicket[]; limits: { over: number; under: number } }) {
   const [showAll, setShowAll] = useState(false);
-  const share = team.length ? Math.ceil(queue.length / team.length) : 0;
   const byType = new Map<string, number>();
   for (const t of queue) byType.set(t.type, (byType.get(t.type) ?? 0) + 1);
   const types = [...byType].sort((a, b) => b[1] - a[1]);
-  const oldest = queue.length ? api.daysSince(queue[0].updated_at) : 0;
+  // Days since the ticket last changed in the tracker (an import that changes it counts), not since it entered testing in Jira.
+  const stale = queue.filter((t) => api.daysSince(t.updated_at) >= api.WAITING_DAYS).length;
   const rows = [...team].sort((a, b) => b.load - a.load || a.person.name.localeCompare(b.person.name));
-  const max = Math.max(limits.over + 2, ...team.map((r) => r.load + share));
+  const max = Math.max(limits.over + 2, ...team.map((r) => r.load));
   const shown = showAll ? queue : queue.slice(0, QUEUE_SHOWN);
 
   return (
-    <section className="mt-10" aria-labelledby="qa-workload">
+    <section aria-labelledby="qa-workload">
       <h2 id="qa-workload" className="text-base font-semibold">
         QA workload
       </h2>
-      <p className="mb-3 text-sm text-muted">Tickets outside ZST that are waiting to be tested, and the QA team's own work.</p>
+      <p className="mb-3 text-sm text-muted">Tickets outside ZST in Ready for Testing in Jira, and the QA team's own work.</p>
       <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Waiting to be tested" value={queue.length} tone="text-amber-600" />
-        <Tile label={team.length ? `Each, shared across ${plural(team.length, "tester")}` : "Each (no QA team yet)"} value={share} />
-        <Tile label="Days the oldest has waited" value={oldest} tone={oldest >= api.WAITING_DAYS ? "text-red-600" : undefined} />
+        <Tile label="Ready for testing" value={queue.length} tone="text-amber-600" />
+        <Tile label={`Unchanged for ${api.WAITING_DAYS}+ days`} value={stale} tone="text-red-600" />
+        <Tile label="On the QA team" value={team.length} />
         <div className="rounded-2xl border border-line/80 bg-surface p-4 shadow-xs">
           <div className="flex flex-wrap gap-1.5">
             {types.length === 0 ? <span className="text-2xl font-semibold">0</span> : types.map(([type, n]) => <Badge key={type} value="waiting" label={`${type} ${n}`} />)}
@@ -138,28 +166,27 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
         </div>
       </div>
 
+      <h3 className="mb-2 text-sm font-semibold">QA team&apos;s own tasks and tickets</h3>
       {team.length === 0 ? (
         <Empty>
           Nobody is on the QA team yet. On the{" "}
           <Link to="/people" className="underline">
             People
           </Link>{" "}
-          page, set each tester's role to QA.
+          page, set each tester&apos;s role to QA.
         </Empty>
       ) : (
         <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
           {rows.map((r) => (
-            <PersonRow key={r.person.id} row={r} max={max} over={limits.over} level={levelFor(r.load + share)} extra={share} total={r.load + share}>
-              {share > 0 && <span>+{share} from the testing queue</span>}
-            </PersonRow>
+            <PersonRow key={r.person.id} row={r} max={max} over={limits.over} />
           ))}
         </ul>
       )}
-      <Legend extra>For QA, the number on the right adds an even share of the testing queue to their own tasks and tickets.</Legend>
+      <Legend>The tickets waiting to be tested aren&apos;t divided between testers here, because who tests what isn&apos;t recorded.</Legend>
 
       {queue.length > 0 && (
         <div className="mt-6">
-          <h3 className="mb-2 text-sm font-semibold">Testing queue, longest waiting first</h3>
+          <h3 className="mb-2 text-sm font-semibold">Testing queue, longest unchanged first</h3>
           <ul className="divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
             {shown.map((t) => {
               const days = api.daysSince(t.updated_at);
@@ -172,7 +199,7 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
                     <span className="block truncate text-xs text-muted">{t.developers.length ? `Developer: ${t.developers.join(", ")}` : "No developer linked"}</span>
                   </Link>
                   <Badge value={t.priority} />
-                  <span className={cx("w-20 shrink-0 text-right text-xs tabular-nums", days >= api.WAITING_DAYS ? "font-medium text-red-600" : "text-muted")}>{days === 0 ? "Today" : `${days}d waiting`}</span>
+                  <span className={cx("w-28 shrink-0 text-right text-xs tabular-nums", days >= api.WAITING_DAYS ? "font-medium text-red-600" : "text-muted")}>{days === 0 ? "Changed today" : `${days}d unchanged`}</span>
                 </li>
               );
             })}
@@ -188,7 +215,7 @@ function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[];
   );
 }
 
-function PersonRow({ row: r, max, over, level, extra = 0, total, children }: { row: api.WorkloadRow; max: number; over: number; level: Level; extra?: number; total?: number; children?: React.ReactNode }) {
+function PersonRow({ row: r, max, over, level, children }: { row: api.WorkloadRow; max: number; over: number; level?: Level; children?: React.ReactNode }) {
   return (
     <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
       <Link to={`/people/${r.person.id}`} className="min-w-0 hover:underline">
@@ -200,7 +227,6 @@ function PersonRow({ row: r, max, over, level, extra = 0, total, children }: { r
           <div className="flex h-full">
             <div className="h-full bg-accent" style={{ width: `${(r.tasks / max) * 100}%` }} />
             <div className="h-full bg-brand-light" style={{ width: `${(r.tickets / max) * 100}%` }} />
-            {extra > 0 && <div className="h-full bg-amber-300" style={{ width: `${(extra / max) * 100}%` }} />}
           </div>
           <div aria-hidden title="Overloaded from here" className="absolute top-0 bottom-0 w-px bg-red-400" style={{ left: `${(over / max) * 100}%` }} />
         </div>
@@ -217,16 +243,42 @@ function PersonRow({ row: r, max, over, level, extra = 0, total, children }: { r
         </div>
       </div>
       <div className="flex items-center gap-2 justify-self-end">
-        <span className="text-lg font-semibold tabular-nums">{total ?? r.load}</span>
-        <span className="w-24 text-right">
-          <Badge value={LEVELS[level].tone} label={LEVELS[level].label} />
-        </span>
+        <span className="text-lg font-semibold tabular-nums">{r.load}</span>
+        <span className="w-24 text-right">{level && <Badge value={LEVELS[level].tone} label={LEVELS[level].label} />}</span>
       </div>
     </li>
   );
 }
 
-function Legend({ children, extra = false }: { children: React.ReactNode; extra?: boolean }) {
+function Tab({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+      className={cx("inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm font-medium transition", on ? "bg-accent text-white shadow-sm" : "text-muted hover:text-fg")}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Count({ n, tone, title }: { n: number; tone?: "over" | "queue"; title: string }) {
+  return (
+    <span
+      title={title}
+      className={cx(
+        "rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums",
+        tone === "queue" ? "bg-amber-100 text-amber-800" : tone === "over" ? "bg-red-100 text-red-700" : "bg-hover text-fg",
+      )}
+    >
+      {n}
+    </span>
+  );
+}
+
+function Legend({ children }: { children: React.ReactNode }) {
   return (
     <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
       <span className="inline-flex items-center gap-1.5">
@@ -235,11 +287,6 @@ function Legend({ children, extra = false }: { children: React.ReactNode; extra?
       <span className="inline-flex items-center gap-1.5">
         <span className="h-2.5 w-5 rounded-full bg-brand-light" /> Open tickets
       </span>
-      {extra && (
-        <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-5 rounded-full bg-amber-300" /> Share of the testing queue
-        </span>
-      )}
       <span>{children}</span>
     </p>
   );

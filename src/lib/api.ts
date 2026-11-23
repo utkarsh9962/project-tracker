@@ -202,8 +202,8 @@ export async function getTicket(id: number) {
 }
 
 // The tickets a person works on, open ones first, most urgent first.
-type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id">;
-const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id";
+type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id" | "notes">;
+const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id, notes";
 const byTicketUrgency = (a: AssignedTicket, b: AssignedTicket) =>
   Number(!isOpenTicket(a)) - Number(!isOpenTicket(b)) || byPriority(a, b) || byDue(a, b) || a.key.localeCompare(b.key);
 
@@ -335,9 +335,9 @@ export async function getWorkload() {
   const rows = people.map((person) => {
     const myTasks = tasks.filter((t) => t.assignee_id === person.id);
     const open = ticketPeople.filter((t) => t.person_id === person.id && isOpenTicket(t.ticket)).map((t) => t.ticket);
-    // A developer's tickets in testing are shown but not counted. For QA people they are their own work, so they count.
+    // Tickets in testing are shown but not counted against anyone: they sit in the QA queue, which isn't split per tester.
     const qa = isQaPerson(person);
-    const myTickets = qa ? open : open.filter((t) => !isAwaitingQa(t));
+    const myTickets = open.filter((t) => !isAwaitingQa(t));
     const due = [...myTasks, ...myTickets].flatMap((x) => (x.due_date ? [x.due_date] : []));
     return {
       person,

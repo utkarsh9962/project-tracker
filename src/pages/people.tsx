@@ -75,22 +75,13 @@ export function People() {
                             Edit
                           </Link>
                         </div>
-                        <div className="mt-3 text-xs text-muted">
-                          {current.length === 0 ? "Not on any open project" : `On ${current.length} open project${current.length === 1 ? "" : "s"}`}
-                        </div>
-                        {projects.length > 0 && (
-                          <ul className="mt-2 space-y-1">
-                            {projects.map((a) => (
-                              <li key={a.project_id} className="flex items-center gap-2 text-sm">
-                                <Link to={`/projects/${a.project_id}`} className="min-w-0 flex-1 truncate hover:underline">
-                                  {a.project.name}
-                                  {a.role && <span className="text-muted"> · {a.role}</span>}
-                                </Link>
-                                <StatusBadge status={a.project.status} />
-                              </li>
-                            ))}
-                          </ul>
-                        )}
+                        {current.length === 0 && <div className="mt-3 text-xs text-muted">Not on any open project</div>}
+                        <Section title="Active projects" count={current.length}>
+                          <ProjectList items={current} />
+                        </Section>
+                        <Section title="Completed projects" count={projects.length - current.length} closed>
+                          <ProjectList items={projects.filter((p) => p.project.status === "done")} />
+                        </Section>
                         <AddToProject
                           personId={person.id}
                           role={person.role}
@@ -191,37 +182,103 @@ function AddToProject({ personId, role, options }: { personId: number; role: str
 }
 
 type CardTicket = Awaited<ReturnType<typeof api.listPeople>>[number]["tickets"][number];
+type CardProject = Awaited<ReturnType<typeof api.listPeople>>[number]["projects"][number];
 
-// "Working on tickets" on a person card: their open tickets, with a picker to give them another.
+// A collapsible group on a person card. Nothing is shown for an empty group. Long lists start with the first few
+// and a "show all" link, so a busy person's card doesn't run down the page.
+const SHORT_LIST = 5;
+function Section({ title, count, closed = false, children }: { title: string; count: number; closed?: boolean; children: React.ReactNode }) {
+  if (count === 0) return null;
+  return (
+    <details open={!closed} className="group/section mt-3">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs text-muted select-none hover:text-fg [&::-webkit-details-marker]:hidden">
+        <span aria-hidden className="inline-block transition group-open/section:rotate-90">
+          ›
+        </span>
+        {title}
+        <span className="rounded-full bg-hover px-1.5 font-medium text-fg tabular-nums">{count}</span>
+      </summary>
+      <div className="mt-2">{children}</div>
+    </details>
+  );
+}
+
+function Shortened<T>({ items, render }: { items: T[]; render: (item: T) => React.ReactNode }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? items : items.slice(0, SHORT_LIST);
+  return (
+    <>
+      <ul className="space-y-1">{shown.map(render)}</ul>
+      {items.length > SHORT_LIST && (
+        <button type="button" onClick={() => setAll(!all)} className="mt-1 text-xs text-accent hover:underline">
+          {all ? "Show fewer" : `Show all ${items.length}`}
+        </button>
+      )}
+    </>
+  );
+}
+
+function ProjectList({ items }: { items: CardProject[] }) {
+  return (
+    <Shortened
+      items={items}
+      render={(a) => (
+        <li key={a.project_id} className="flex items-center gap-2 text-sm">
+          <Link to={`/projects/${a.project_id}`} className="min-w-0 flex-1 truncate hover:underline">
+            {a.project.name}
+            {a.role && <span className="text-muted"> · {a.role}</span>}
+          </Link>
+          <StatusBadge status={a.project.status} />
+        </li>
+      )}
+    />
+  );
+}
+
+// "Working on tickets" on a person card, with a picker to give them another. Tickets handed to QA (outside ZST,
+// "Ready for Testing" in Jira) and finished tickets get their own groups, closed until opened.
 function WorkingOnTickets({ personId, tickets }: { personId: number; tickets: CardTicket[] }) {
   const mutate = useMutate();
   const navigate = useNavigate();
   const open = tickets.filter(api.isOpenTicket);
-  return (
-    <div className="mt-4 border-t border-line/70 pt-3">
-      <div className="text-xs text-muted">{open.length === 0 ? "Not working on any open ticket" : `Working on ${open.length} ticket${open.length === 1 ? "" : "s"}`}</div>
-      {open.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {open.map((t) => (
-            <li key={t.id} className="group flex items-center gap-2 text-sm">
-              <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 items-baseline gap-2 hover:underline">
-                <span className="shrink-0 font-mono text-xs text-muted">{t.key}</span>
-                <span className="truncate">{t.title}</span>
-              </Link>
-              <Badge value={t.priority} />
-              <button
-                type="button"
-                aria-label={`Take ${t.key} off this person`}
-                title="Remove"
-                className="text-muted opacity-60 transition hover:text-red-600 hover:opacity-100"
-                onClick={() => mutate(() => api.unassignTicket(t.id, personId))}
-              >
-                ×
-              </button>
-            </li>
-          ))}
-        </ul>
+  const testing = open.filter(api.isAwaitingQa);
+  const active = open.filter((t) => !api.isAwaitingQa(t));
+  const done = tickets.filter((t) => !api.isOpenTicket(t));
+  const list = (items: CardTicket[]) => (
+    <Shortened
+      items={items}
+      render={(t) => (
+        <li key={t.id} className="group flex items-center gap-2 text-sm">
+          <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 items-baseline gap-2 hover:underline">
+            <span className="shrink-0 font-mono text-xs text-muted">{t.key}</span>
+            <span className="truncate">{t.title}</span>
+          </Link>
+          <Badge value={t.priority} />
+          <button
+            type="button"
+            aria-label={`Take ${t.key} off this person`}
+            title="Remove"
+            className="text-muted opacity-60 transition hover:text-red-600 hover:opacity-100"
+            onClick={() => mutate(() => api.unassignTicket(t.id, personId))}
+          >
+            ×
+          </button>
+        </li>
       )}
+    />
+  );
+  return (
+    <div className="mt-4 border-t border-line/70 pt-1">
+      {active.length === 0 && <div className="mt-3 text-xs text-muted">Not working on any open ticket</div>}
+      <Section title="Working on" count={active.length}>
+        {list(active)}
+      </Section>
+      <Section title="In testing (with QA)" count={testing.length} closed>
+        {list(testing)}
+      </Section>
+      <Section title="Completed tickets" count={done.length} closed>
+        {list(done)}
+      </Section>
       <AssignTicket personId={personId} assigned={tickets.map((t) => t.id)} onNew={() => navigate(`/people/${personId}?new=ticket`)} />
     </div>
   );
