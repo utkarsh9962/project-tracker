@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
 import { matches, type SearchData } from "./search";
-import { PLATFORM_TAGS, type Activity, type Assignment, type Attachment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
+import { PLATFORM_TAGS, ticketType, type Activity, type Assignment, type Attachment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
 // Row types come from src/lib/types.ts rather than generated database types, hence the cast.
@@ -305,31 +305,61 @@ export async function getTimeline() {
 }
 
 // How much open work each person carries: open tasks and open tickets, with what is late or due this week.
+// A non-ZST ticket whose Jira status (kept in its "Jira: Major, Ready for Testing" note by the importer) says it is
+// waiting to be tested. The developer has handed it over, so it is QA's work, not theirs. ZST support tickets stay
+// with whoever has them whatever their status.
+const QA_STATUS = /\b(ready for testing|in testing|testing|qa|uat)\b/i;
+export const isAwaitingQa = (t: Pick<Ticket, "key" | "status" | "notes">) =>
+  isOpenTicket(t) && ticketType(t.key) !== "ZST" && /^jira:/i.test(t.notes ?? "") && QA_STATUS.test((t.notes ?? "").replace(/^jira:/i, ""));
+// QA people are the ones whose role says so: "QA", "QA Engineer", "Tester", "Testing"…
+export const isQaPerson = (p: Pick<Person, "role">) => /\b(qa|tester|testing|quality)\b/i.test(p.role ?? "");
+
+type WorkloadTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "notes" | "priority" | "due_date" | "project_id" | "updated_at">;
+const WORKLOAD_TICKET = "id, key, title, status, notes, priority, due_date, project_id, updated_at";
+
 export async function getWorkload() {
   const now = today();
   const soon = addDays(now, 7);
-  const [people, tasks, ticketPeople, projectPeople] = await Promise.all([
+  const [people, tasks, ticketPeople, projectPeople, waiting] = await Promise.all([
     run<Person[]>(supabase.from("people").select("*").order("name")),
     run<Pick<Task, "assignee_id" | "due_date" | "project_id">[]>(supabase.from("tasks").select("assignee_id, due_date, project_id").neq("status", "done").not("assignee_id", "is", null)),
-    run<{ person_id: number; ticket: Pick<Ticket, "id" | "status" | "due_date" | "project_id"> }[]>(supabase.from("ticket_people").select("person_id, ticket:tickets(id, status, due_date, project_id)")),
+    run<{ person_id: number; ticket: WorkloadTicket }[]>(supabase.from("ticket_people").select(`person_id, ticket:tickets(${WORKLOAD_TICKET})`)),
     run<{ person_id: number; project: Pick<Project, "id" | "status"> }[]>(supabase.from("project_people").select("person_id, project:projects(id, status)")),
+    run<WorkloadTicket[]>(supabase.from("tickets").select(WORKLOAD_TICKET).eq("status", "waiting")),
   ]);
-  return people.map((person) => {
+  const developerOf = new Map<number, string[]>();
+  for (const { person_id, ticket } of ticketPeople) {
+    const name = people.find((p) => p.id === person_id)?.name;
+    if (name) developerOf.set(ticket.id, [...(developerOf.get(ticket.id) ?? []), name]);
+  }
+  const rows = people.map((person) => {
     const myTasks = tasks.filter((t) => t.assignee_id === person.id);
-    const myTickets = ticketPeople.filter((t) => t.person_id === person.id && isOpenTicket(t.ticket)).map((t) => t.ticket);
+    const open = ticketPeople.filter((t) => t.person_id === person.id && isOpenTicket(t.ticket)).map((t) => t.ticket);
+    // A developer's tickets in testing are shown but not counted. For QA people they are their own work, so they count.
+    const qa = isQaPerson(person);
+    const myTickets = qa ? open : open.filter((t) => !isAwaitingQa(t));
     const due = [...myTasks, ...myTickets].flatMap((x) => (x.due_date ? [x.due_date] : []));
     return {
       person,
+      qa,
       projectIds: [...new Set([...projectPeople.filter((a) => a.person_id === person.id && a.project.status !== "done").map((a) => a.project.id), ...myTasks.map((t) => t.project_id)])],
       tasks: myTasks.length,
       tickets: myTickets.length,
+      inTesting: open.length - myTickets.length,
       load: myTasks.length + myTickets.length,
       overdue: due.filter((d) => d < now).length,
       dueSoon: due.filter((d) => d >= now && d <= soon).length,
     };
   });
+  // Everything waiting to be tested, oldest first: the queue the QA team works from.
+  const queue = waiting
+    .filter(isAwaitingQa)
+    .map((t) => ({ ...t, type: ticketType(t.key), developers: developerOf.get(t.id) ?? [] }))
+    .sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+  return { rows, queue };
 }
-export type WorkloadRow = Awaited<ReturnType<typeof getWorkload>>[number];
+export type WorkloadRow = Awaited<ReturnType<typeof getWorkload>>["rows"][number];
+export type QaQueueTicket = Awaited<ReturnType<typeof getWorkload>>["queue"][number];
 
 // History and screenshots arrive with a database update (supabase/migrations/20261116000000_history_and_screenshots.sql).
 // Until it has been run these return null, and the pages say so instead of failing.
