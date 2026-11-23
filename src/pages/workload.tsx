@@ -7,9 +7,12 @@ import { Badge, cx, Empty, PageHeader, useTitle } from "@/components/ui";
 
 // How much open work each person has. Someone is overloaded or underloaded when their open tasks and tickets
 // pass the limits set on this page; the limits are remembered in this browser.
+// Non-ZST tickets waiting to be tested are QA's work, not the developer's, so they are counted in the QA section
+// instead. The QA team is everyone whose role says QA (or Tester).
 
 const KEY = "workload-limits";
 const DEFAULTS = { over: 8, under: 1 };
+const QUEUE_SHOWN = 15;
 
 function readLimits() {
   try {
@@ -26,6 +29,7 @@ const LEVELS: Record<Level, { label: string; tone: string }> = {
   under: { label: "Underloaded", tone: "soon" },
   ok: { label: "Balanced", tone: "resolved" },
 };
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function Workload() {
   useTitle("Workload");
@@ -41,7 +45,7 @@ export function Workload() {
       // Private browsing: the limits simply last until the page is closed.
     }
   };
-  const levelOf = (r: api.WorkloadRow): Level => (r.load >= limits.over ? "over" : r.load <= limits.under ? "under" : "ok");
+  const levelFor = (load: number): Level => (load >= limits.over ? "over" : load <= limits.under ? "under" : "ok");
 
   return (
     <>
@@ -50,18 +54,22 @@ export function Workload() {
           ← People
         </Link>
       </div>
-      <PageHeader title="Workload" subtitle="Open tasks and open tickets per person, busiest first." />
+      <PageHeader title="Workload" subtitle="Open tasks and open tickets per person, busiest first. Tickets waiting to be tested count for QA, not the developer." />
       <Load queryKey={["workload"]} fn={api.getWorkload} rows={8}>
-        {(all) => {
+        {({ rows: everyone, queue }) => {
+          const all = everyone.filter((r) => !r.qa);
+          const qaTeam = everyone.filter((r) => r.qa);
+          const levelOf = (r: api.WorkloadRow) => levelFor(r.load);
           const roles = [...new Set(all.flatMap((r) => (r.person.role ? [r.person.role] : [])))].sort((a, b) => a.localeCompare(b));
           const rows = all
             .filter((r) => (!level || levelOf(r) === level) && (!role || r.person.role === role))
             .sort((a, b) => b.load - a.load || b.projectIds.length - a.projectIds.length || a.person.name.localeCompare(b.person.name));
           const max = Math.max(limits.over + 2, ...all.map((r) => r.load));
           const counts = { over: all.filter((r) => levelOf(r) === "over").length, under: all.filter((r) => levelOf(r) === "under").length };
-          if (all.length === 0) return <Empty>No people yet. Add them on the People page.</Empty>;
+          if (everyone.length === 0) return <Empty>No people yet. Add them on the People page.</Empty>;
           return (
             <>
+              <h2 className="mb-3 text-base font-semibold">Developers</h2>
               <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Tile label="Overloaded" value={counts.over} tone="text-red-600" onClick={() => filters.set("load", level === "over" ? "" : "over")} on={level === "over"} />
                 <Tile label="Underloaded" value={counts.under} tone="text-amber-600" onClick={() => filters.set("load", level === "under" ? "" : "under")} on={level === "under"} />
@@ -79,63 +87,161 @@ export function Workload() {
               </SlicerBar>
 
               {rows.length === 0 ? (
-                <Empty>Nobody matches these filters.</Empty>
+                <Empty>{all.length === 0 ? "Everyone here is on the QA team." : "Nobody matches these filters."}</Empty>
               ) : (
                 <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
-                  {rows.map((r) => {
-                    const l = levelOf(r);
-                    return (
-                      <li key={r.person.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
-                        <Link to={`/people/${r.person.id}`} className="min-w-0 hover:underline">
-                          <span className="block truncate text-sm font-medium">{r.person.name}</span>
-                          <span className="block truncate text-xs text-muted">
-                            {[r.person.role, `${r.projectIds.length} open project${r.projectIds.length === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
-                          </span>
-                        </Link>
-                        <div className="order-last col-span-2 min-w-0 sm:order-none sm:col-span-1">
-                          <div className="relative h-3.5 overflow-hidden rounded-full bg-hover" aria-label={`${r.tasks} open tasks and ${r.tickets} open tickets`}>
-                            <div className="flex h-full">
-                              <div className="h-full bg-accent" style={{ width: `${(r.tasks / max) * 100}%` }} />
-                              <div className="h-full bg-brand-light" style={{ width: `${(r.tickets / max) * 100}%` }} />
-                            </div>
-                            <div aria-hidden title="Overloaded from here" className="absolute top-0 bottom-0 w-px bg-red-400" style={{ left: `${(limits.over / max) * 100}%` }} />
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted">
-                            <span>
-                              <span className="font-medium text-fg">{r.tasks}</span> task{r.tasks === 1 ? "" : "s"}
-                            </span>
-                            <span>
-                              <span className="font-medium text-fg">{r.tickets}</span> ticket{r.tickets === 1 ? "" : "s"}
-                            </span>
-                            {r.overdue > 0 && <span className="font-medium text-red-600">{r.overdue} overdue</span>}
-                            {r.dueSoon > 0 && <span className="text-amber-700">{r.dueSoon} due this week</span>}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 justify-self-end">
-                          <span className="text-lg font-semibold tabular-nums">{r.load}</span>
-                          <span className="w-24 text-right">
-                            <Badge value={LEVELS[l].tone} label={LEVELS[l].label} />
-                          </span>
-                        </div>
-                      </li>
-                    );
-                  })}
+                  {rows.map((r) => (
+                    <PersonRow key={r.person.id} row={r} max={max} over={limits.over} level={levelOf(r)}>
+                      {r.inTesting > 0 && <span title="Handed over to QA. Not counted in this person's load.">{r.inTesting} in testing</span>}
+                    </PersonRow>
+                  ))}
                 </ul>
               )}
-              <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2.5 w-5 rounded-full bg-accent" /> Open tasks
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2.5 w-5 rounded-full bg-brand-light" /> Open tickets
-                </span>
-                <span>The number on the right is the two added together. The red line marks where overloaded starts.</span>
-              </p>
+              <Legend>The number on the right is the two added together. Tickets in testing are shown but not counted. The red line marks where overloaded starts.</Legend>
+
+              <QaSection team={qaTeam} queue={queue} limits={limits} levelFor={levelFor} />
             </>
           );
         }}
       </Load>
     </>
+  );
+}
+
+// The QA team's own tasks and tickets, plus an even share of the tickets waiting to be tested.
+function QaSection({ team, queue, limits, levelFor }: { team: api.WorkloadRow[]; queue: api.QaQueueTicket[]; limits: { over: number; under: number }; levelFor: (n: number) => Level }) {
+  const [showAll, setShowAll] = useState(false);
+  const share = team.length ? Math.ceil(queue.length / team.length) : 0;
+  const byType = new Map<string, number>();
+  for (const t of queue) byType.set(t.type, (byType.get(t.type) ?? 0) + 1);
+  const types = [...byType].sort((a, b) => b[1] - a[1]);
+  const oldest = queue.length ? api.daysSince(queue[0].updated_at) : 0;
+  const rows = [...team].sort((a, b) => b.load - a.load || a.person.name.localeCompare(b.person.name));
+  const max = Math.max(limits.over + 2, ...team.map((r) => r.load + share));
+  const shown = showAll ? queue : queue.slice(0, QUEUE_SHOWN);
+
+  return (
+    <section className="mt-10" aria-labelledby="qa-workload">
+      <h2 id="qa-workload" className="text-base font-semibold">
+        QA workload
+      </h2>
+      <p className="mb-3 text-sm text-muted">Tickets outside ZST that are waiting to be tested, and the QA team's own work.</p>
+      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tile label="Waiting to be tested" value={queue.length} tone="text-amber-600" />
+        <Tile label={team.length ? `Each, shared across ${plural(team.length, "tester")}` : "Each (no QA team yet)"} value={share} />
+        <Tile label="Days the oldest has waited" value={oldest} tone={oldest >= api.WAITING_DAYS ? "text-red-600" : undefined} />
+        <div className="rounded-2xl border border-line/80 bg-surface p-4 shadow-xs">
+          <div className="flex flex-wrap gap-1.5">
+            {types.length === 0 ? <span className="text-2xl font-semibold">0</span> : types.map(([type, n]) => <Badge key={type} value="waiting" label={`${type} ${n}`} />)}
+          </div>
+          <div className="mt-2 text-xs text-muted">By Jira project</div>
+        </div>
+      </div>
+
+      {team.length === 0 ? (
+        <Empty>
+          Nobody is on the QA team yet. On the{" "}
+          <Link to="/people" className="underline">
+            People
+          </Link>{" "}
+          page, set each tester's role to QA.
+        </Empty>
+      ) : (
+        <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
+          {rows.map((r) => (
+            <PersonRow key={r.person.id} row={r} max={max} over={limits.over} level={levelFor(r.load + share)} extra={share} total={r.load + share}>
+              {share > 0 && <span>+{share} from the testing queue</span>}
+            </PersonRow>
+          ))}
+        </ul>
+      )}
+      <Legend extra>For QA, the number on the right adds an even share of the testing queue to their own tasks and tickets.</Legend>
+
+      {queue.length > 0 && (
+        <div className="mt-6">
+          <h3 className="mb-2 text-sm font-semibold">Testing queue, longest waiting first</h3>
+          <ul className="divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">
+            {shown.map((t) => {
+              const days = api.daysSince(t.updated_at);
+              return (
+                <li key={t.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <Link to={`/tickets/${t.id}`} className="min-w-0 flex-1 hover:underline">
+                    <span className="block truncate text-sm">
+                      <span className="font-medium">{t.key}</span> {t.title}
+                    </span>
+                    <span className="block truncate text-xs text-muted">{t.developers.length ? `Developer: ${t.developers.join(", ")}` : "No developer linked"}</span>
+                  </Link>
+                  <Badge value={t.priority} />
+                  <span className={cx("w-20 shrink-0 text-right text-xs tabular-nums", days >= api.WAITING_DAYS ? "font-medium text-red-600" : "text-muted")}>{days === 0 ? "Today" : `${days}d waiting`}</span>
+                </li>
+              );
+            })}
+          </ul>
+          {queue.length > QUEUE_SHOWN && (
+            <button type="button" onClick={() => setShowAll(!showAll)} className="mt-2 text-sm text-muted hover:text-fg">
+              {showAll ? "Show fewer" : `Show all ${queue.length}`}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PersonRow({ row: r, max, over, level, extra = 0, total, children }: { row: api.WorkloadRow; max: number; over: number; level: Level; extra?: number; total?: number; children?: React.ReactNode }) {
+  return (
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 px-4 py-3 sm:grid-cols-[14rem_minmax(0,1fr)_auto]">
+      <Link to={`/people/${r.person.id}`} className="min-w-0 hover:underline">
+        <span className="block truncate text-sm font-medium">{r.person.name}</span>
+        <span className="block truncate text-xs text-muted">{[r.person.role, plural(r.projectIds.length, "open project")].filter(Boolean).join(" · ")}</span>
+      </Link>
+      <div className="order-last col-span-2 min-w-0 sm:order-none sm:col-span-1">
+        <div className="relative h-3.5 overflow-hidden rounded-full bg-hover" aria-label={`${r.tasks} open tasks and ${r.tickets} open tickets`}>
+          <div className="flex h-full">
+            <div className="h-full bg-accent" style={{ width: `${(r.tasks / max) * 100}%` }} />
+            <div className="h-full bg-brand-light" style={{ width: `${(r.tickets / max) * 100}%` }} />
+            {extra > 0 && <div className="h-full bg-amber-300" style={{ width: `${(extra / max) * 100}%` }} />}
+          </div>
+          <div aria-hidden title="Overloaded from here" className="absolute top-0 bottom-0 w-px bg-red-400" style={{ left: `${(over / max) * 100}%` }} />
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted">
+          <span>
+            <span className="font-medium text-fg">{r.tasks}</span> task{r.tasks === 1 ? "" : "s"}
+          </span>
+          <span>
+            <span className="font-medium text-fg">{r.tickets}</span> ticket{r.tickets === 1 ? "" : "s"}
+          </span>
+          {children}
+          {r.overdue > 0 && <span className="font-medium text-red-600">{r.overdue} overdue</span>}
+          {r.dueSoon > 0 && <span className="text-amber-700">{r.dueSoon} due this week</span>}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 justify-self-end">
+        <span className="text-lg font-semibold tabular-nums">{total ?? r.load}</span>
+        <span className="w-24 text-right">
+          <Badge value={LEVELS[level].tone} label={LEVELS[level].label} />
+        </span>
+      </div>
+    </li>
+  );
+}
+
+function Legend({ children, extra = false }: { children: React.ReactNode; extra?: boolean }) {
+  return (
+    <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2.5 w-5 rounded-full bg-accent" /> Open tasks
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="h-2.5 w-5 rounded-full bg-brand-light" /> Open tickets
+      </span>
+      {extra && (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-5 rounded-full bg-amber-300" /> Share of the testing queue
+        </span>
+      )}
+      <span>{children}</span>
+    </p>
   );
 }
 
