@@ -1,7 +1,7 @@
 import { supabase } from "./supabase";
 import { addDays, today } from "./format";
 import { matches, type SearchData } from "./search";
-import { PLATFORM_TAGS, ticketType, type Activity, type Assignment, type Attachment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Ticket, type TicketAssignment } from "./types";
+import { PLATFORM_TAGS, ticketType, type Activity, type Assignment, type Attachment, type Milestone, type Person, type Priority, type Project, type Resource, type Task, type Team, type Ticket, type TicketAssignment } from "./types";
 
 // Supabase returns { data, error }; unwrap so callers (and React Query) see thrown errors.
 // Row types come from src/lib/types.ts rather than generated database types, hence the cast.
@@ -425,11 +425,39 @@ export async function moveScreenshots(fromTaskIds: number[], toTaskId: number) {
   if (fromTaskIds.length) await supabase.from("attachments").update({ task_id: toTaskId }).in("task_id", fromTaskIds);
 }
 
+// Teams arrive with a database update (supabase/migrations/20261125000000_teams.sql). Until it has been run
+// this returns null and People/Workload show everyone in one list, as before.
+export async function listTeams(): Promise<Team[] | null> {
+  const { data, error } = await supabase.from("teams").select("id, name, position").order("position").order("name");
+  if (error) {
+    if (notSetUp(error.message)) return null;
+    throw new Error(error.message);
+  }
+  return data as Team[];
+}
+
+export const UNASSIGNED = "none";
+// Splits rows into one group per team, in the teams' order, with people in no team (or a deleted one) last as "Unassigned".
+// Empty teams are kept only when asked, so a new team can be filled from the People page.
+export function groupByTeam<R extends { person: Pick<Person, "team_id"> }>(teams: Team[], rows: R[], keepEmpty = false) {
+  const known = new Set(teams.map((t) => t.id));
+  const groups: { team: Team | null; rows: R[] }[] = teams.map((team) => ({ team, rows: rows.filter((r) => r.person.team_id === team.id) }));
+  groups.push({ team: null, rows: rows.filter((r) => r.person.team_id == null || !known.has(r.person.team_id)) });
+  return groups.filter((g) => g.rows.length > 0 || (keepEmpty && g.team));
+}
+// The "Team" filter: a team's id, "none" for Unassigned, or "" for everyone.
+export function inTeam(teams: Team[], person: Pick<Person, "team_id">, value: string) {
+  if (!value) return true;
+  const id = person.team_id;
+  if (value === UNASSIGNED) return id == null || !teams.some((t) => t.id === id);
+  return id === Number(value);
+}
+
 // ---------- Writes ----------
 
 export type ProjectInput = Omit<Project, "id" | "tags" | "created_at" | "updated_at">;
 export type TicketInput = Omit<Ticket, "id" | "updated_at">;
-export type PersonInput = Omit<Person, "id" | "jira_filter"> & { jira_filter?: string | null };
+export type PersonInput = Omit<Person, "id" | "jira_filter" | "team_id"> & { jira_filter?: string | null; team_id?: number | null };
 export type ResourceInput = Omit<Resource, "id" | "created_at">;
 
 export const createProject = (v: ProjectInput) => run<{ id: number }>(supabase.from("projects").insert(v).select("id").single());
@@ -511,6 +539,12 @@ export async function linkTicket(projectId: number, key: string, title: string) 
 export const createPerson = (v: PersonInput) => run<{ id: number }>(supabase.from("people").insert(v).select("id").single());
 export const updatePerson = (id: number, v: PersonInput) => run(supabase.from("people").update(v).eq("id", id));
 export const setJiraFilter = (id: number, url: string | null) => run(supabase.from("people").update({ jira_filter: url }).eq("id", id));
+export const setPersonTeam = (id: number, teamId: number | null) => run(supabase.from("people").update({ team_id: teamId }).eq("id", id));
+export const setPeopleTeam = (ids: number[], teamId: number | null) => run(supabase.from("people").update({ team_id: teamId }).in("id", ids));
+export const createTeam = (name: string) => run(supabase.from("teams").insert({ name, position: Math.floor(Date.now() / 1000) }));
+export const renameTeam = (id: number, name: string) => run(supabase.from("teams").update({ name }).eq("id", id));
+// The team's people stay, without a team (the database sets their team to empty).
+export const deleteTeam = (id: number) => run(supabase.from("teams").delete().eq("id", id));
 export const deletePerson = (id: number) => run(supabase.from("people").delete().eq("id", id));
 
 export const addResource = (v: ResourceInput) => run(supabase.from("resources").insert(v));
