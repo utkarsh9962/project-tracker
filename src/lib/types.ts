@@ -16,9 +16,10 @@ export type TicketStatus = (typeof TICKET_STATUSES)[number];
 export type ResourceKind = (typeof RESOURCE_KINDS)[number];
 
 // Row shapes as stored in Supabase (snake_case columns).
-// team_id arrives with supabase/migrations/20261125000000_teams.sql; until then it is missing (treated as no team).
+// team_id is the old one-team-per-person link; teams now come from team_people (see Team.members).
 export type Person = { id: number; name: string; role: string | null; email: string | null; notes: string | null; jira_filter: string | null; team_id?: number | null };
-export type Team = { id: number; name: string; position: number };
+// members: the ids of the people in the team. A person can be in several teams.
+export type Team = { id: number; name: string; position: number; members: number[] };
 export type Project = {
   id: number;
   name: string;

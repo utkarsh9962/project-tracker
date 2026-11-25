@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import * as api from "@/lib/api";
 import { Load } from "@/components/query";
 import { Slicer, SlicerBar, useFilters } from "@/components/slicers";
+import { TeamCard } from "@/components/team-card";
 import type { Team } from "@/lib/types";
 import { Badge, cx, Empty, PageHeader, useTitle } from "@/components/ui";
 
@@ -65,7 +66,7 @@ export function Workload() {
         {({ rows: everyone, queue }) => {
           if (everyone.length === 0) return <Empty>No people yet. Add them on the People page.</Empty>;
           // The Team filter applies to every tab, so the tab counts follow it.
-          const shown = everyone.filter((r) => api.inTeam(teams, r.person, team));
+          const shown = everyone.filter((r) => api.inTeam(teams, r.person.id, team));
           const developers = shown.filter((r) => !r.qa && !r.pm);
           const managers = shown.filter((r) => r.pm);
           const qaTeam = shown.filter((r) => r.qa);
@@ -316,26 +317,31 @@ function TeamSlicer({ teams }: { teams: Team[] }) {
   );
 }
 
-// The rows split into one box per team, in the teams' order, busiest first inside each; people in no team come last.
-// Without any teams set up it is one plain list, as before.
+// The rows split into one card per team, in the teams' order, busiest first inside each; people in no team come last.
+// Someone in two teams is listed in both. Without any teams set up it is one plain list, as before.
 function ByTeam({ teams, rows, render, overloaded }: { teams: Team[]; rows: api.WorkloadRow[]; render: (r: api.WorkloadRow) => React.ReactNode; overloaded: (r: api.WorkloadRow) => boolean }) {
-  const list = (items: api.WorkloadRow[]) => <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">{items.map(render)}</ul>;
-  if (teams.length === 0) return list(rows);
+  if (teams.length === 0) return <ul className="stagger divide-y divide-line/70 overflow-hidden rounded-2xl border border-line/80 bg-surface shadow-xs">{rows.map(render)}</ul>;
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {api.groupByTeam(teams, rows).map((g) => {
         const over = g.rows.filter(overloaded).length;
         return (
-          <section key={g.team?.id ?? api.UNASSIGNED}>
-            <h3 className="mb-2 flex flex-wrap items-baseline gap-x-2 text-sm font-semibold">
-              <span className={g.team ? "" : "text-muted"}>{g.team ? g.team.name : "Unassigned"}</span>
-              <span className="text-xs font-normal text-muted">
-                {plural(g.rows.length, "person").replace("persons", "people")} · {plural(g.rows.reduce((n, r) => n + r.load, 0), "open item")}
+          <TeamCard
+            key={g.team?.id ?? api.UNASSIGNED}
+            id={String(g.team?.id ?? api.UNASSIGNED)}
+            page="workload"
+            name={g.team?.name ?? "Unassigned"}
+            muted={!g.team}
+            count={g.rows.length}
+            summary={
+              <>
+                {plural(g.rows.reduce((n, r) => n + r.load, 0), "open item")}
                 {over > 0 && <span className="font-medium text-red-600"> · {over} overloaded</span>}
-              </span>
-            </h3>
-            {list(g.rows)}
-          </section>
+              </>
+            }
+          >
+            <ul className="stagger -mx-4 -my-4 divide-y divide-line/70">{g.rows.map(render)}</ul>
+          </TeamCard>
         );
       })}
     </div>

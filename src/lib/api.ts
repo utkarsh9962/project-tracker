@@ -427,37 +427,43 @@ export async function moveScreenshots(fromTaskIds: number[], toTaskId: number) {
 
 // Teams arrive with a database update (supabase/migrations/20261125000000_teams.sql). Until it has been run
 // this returns null and People/Workload show everyone in one list, as before.
+// Membership lives in team_people (20261125120000_team_people.sql); before that runs, people.team_id is used.
 export async function listTeams(): Promise<Team[] | null> {
   const { data, error } = await supabase.from("teams").select("id, name, position").order("position").order("name");
   if (error) {
     if (notSetUp(error.message)) return null;
     throw new Error(error.message);
   }
-  return data as Team[];
+  let links: { team_id: number; person_id: number }[];
+  const joined = await supabase.from("team_people").select("team_id, person_id");
+  if (joined.error) {
+    if (!notSetUp(joined.error.message)) throw new Error(joined.error.message);
+    const old = await run<{ id: number; team_id: number | null }[]>(supabase.from("people").select("id, team_id").not("team_id", "is", null));
+    links = old.map((p) => ({ team_id: p.team_id as number, person_id: p.id }));
+  } else links = joined.data as typeof links;
+  return (data as Omit<Team, "members">[]).map((t) => ({ ...t, members: links.filter((l) => l.team_id === t.id).map((l) => l.person_id) }));
 }
 
 export const UNASSIGNED = "none";
-// Splits rows into one group per team, in the teams' order, with people in no team (or a deleted one) last as "Unassigned".
+// One group per team, in the teams' order (someone in two teams is in both), and people in no team last as "Unassigned".
 // Empty teams are kept only when asked, so a new team can be filled from the People page.
-export function groupByTeam<R extends { person: Pick<Person, "team_id"> }>(teams: Team[], rows: R[], keepEmpty = false) {
-  const known = new Set(teams.map((t) => t.id));
-  const groups: { team: Team | null; rows: R[] }[] = teams.map((team) => ({ team, rows: rows.filter((r) => r.person.team_id === team.id) }));
-  groups.push({ team: null, rows: rows.filter((r) => r.person.team_id == null || !known.has(r.person.team_id)) });
+export function groupByTeam<R extends { person: Pick<Person, "id"> }>(teams: Team[], rows: R[], keepEmpty = false) {
+  const groups: { team: Team | null; rows: R[] }[] = teams.map((team) => ({ team, rows: rows.filter((r) => team.members.includes(r.person.id)) }));
+  groups.push({ team: null, rows: rows.filter((r) => !teams.some((t) => t.members.includes(r.person.id))) });
   return groups.filter((g) => g.rows.length > 0 || (keepEmpty && g.team));
 }
 // The "Team" filter: a team's id, "none" for Unassigned, or "" for everyone.
-export function inTeam(teams: Team[], person: Pick<Person, "team_id">, value: string) {
+export function inTeam(teams: Team[], personId: number, value: string) {
   if (!value) return true;
-  const id = person.team_id;
-  if (value === UNASSIGNED) return id == null || !teams.some((t) => t.id === id);
-  return id === Number(value);
+  if (value === UNASSIGNED) return !teams.some((t) => t.members.includes(personId));
+  return Boolean(teams.find((t) => t.id === Number(value))?.members.includes(personId));
 }
 
 // ---------- Writes ----------
 
 export type ProjectInput = Omit<Project, "id" | "tags" | "created_at" | "updated_at">;
 export type TicketInput = Omit<Ticket, "id" | "updated_at">;
-export type PersonInput = Omit<Person, "id" | "jira_filter" | "team_id"> & { jira_filter?: string | null; team_id?: number | null };
+export type PersonInput = Omit<Person, "id" | "jira_filter" | "team_id"> & { jira_filter?: string | null };
 export type ResourceInput = Omit<Resource, "id" | "created_at">;
 
 export const createProject = (v: ProjectInput) => run<{ id: number }>(supabase.from("projects").insert(v).select("id").single());
@@ -539,11 +545,22 @@ export async function linkTicket(projectId: number, key: string, title: string) 
 export const createPerson = (v: PersonInput) => run<{ id: number }>(supabase.from("people").insert(v).select("id").single());
 export const updatePerson = (id: number, v: PersonInput) => run(supabase.from("people").update(v).eq("id", id));
 export const setJiraFilter = (id: number, url: string | null) => run(supabase.from("people").update({ jira_filter: url }).eq("id", id));
-export const setPersonTeam = (id: number, teamId: number | null) => run(supabase.from("people").update({ team_id: teamId }).eq("id", id));
-export const setPeopleTeam = (ids: number[], teamId: number | null) => run(supabase.from("people").update({ team_id: teamId }).in("id", ids));
+// Before the team_people update has been run, a person has one team, kept on people.team_id.
+export async function addToTeam(personId: number, teamId: number) {
+  const { error } = await supabase.from("team_people").upsert({ team_id: teamId, person_id: personId }, { ignoreDuplicates: true });
+  if (!error) return;
+  if (!notSetUp(error.message)) throw new Error(error.message);
+  await run(supabase.from("people").update({ team_id: teamId }).eq("id", personId));
+}
+export async function removeFromTeam(personId: number, teamId: number) {
+  const { error } = await supabase.from("team_people").delete().eq("team_id", teamId).eq("person_id", personId);
+  if (!error) return;
+  if (!notSetUp(error.message)) throw new Error(error.message);
+  await run(supabase.from("people").update({ team_id: null }).eq("id", personId).eq("team_id", teamId));
+}
 export const createTeam = (name: string) => run(supabase.from("teams").insert({ name, position: Math.floor(Date.now() / 1000) }));
 export const renameTeam = (id: number, name: string) => run(supabase.from("teams").update({ name }).eq("id", id));
-// The team's people stay, without a team (the database sets their team to empty).
+// The team's people stay; they just leave this team.
 export const deleteTeam = (id: number) => run(supabase.from("teams").delete().eq("id", id));
 export const deletePerson = (id: number) => run(supabase.from("people").delete().eq("id", id));
 
