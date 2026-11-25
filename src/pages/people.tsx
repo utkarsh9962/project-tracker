@@ -8,13 +8,18 @@ import { ActionButton, ConfirmButton, Form, SubmitButton, useMutate } from "@/co
 import { Load } from "@/components/query";
 import { TicketForm } from "@/components/forms/ticket-form";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
-import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, StatusBadge, Textarea, useTitle } from "@/components/ui";
+import type { Team } from "@/lib/types";
+import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, Select, StatusBadge, Textarea, useTitle } from "@/components/ui";
 
 export function People() {
   useTitle("People");
   const filter = useProjectFilter();
   const project = Number(filter.get("project")) || 0;
+  const team = filter.get("team");
   const mutate = useMutate();
+  // undefined while loading, null until the teams database update has been run.
+  const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams }).data;
+  const teamList = teams ?? [];
   return (
     <>
       <PageHeader
@@ -33,7 +38,15 @@ export function People() {
       />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">
-          <ProjectSlicers filter={filter} statusLabel="Project status" extraKeys={["project"]}>
+          <ProjectSlicers filter={filter} statusLabel="Project status" extraKeys={["project", "team"]}>
+            {teamList.length > 0 && (
+              <Slicer
+                label="Team"
+                value={team}
+                options={[...teamList.map((t) => ({ value: String(t.id), label: t.name })), { value: api.UNASSIGNED, label: "Unassigned" }]}
+                onChange={(v) => filter.set("team", v)}
+              />
+            )}
             <Slicer
               label="Project"
               value={project}
@@ -45,7 +58,7 @@ export function People() {
             {(all) => {
               const filtering = filter.active || Boolean(project);
               // While filtering, list only the people on matching projects, and only those projects.
-              const rows = filtering
+              const matching = filtering
                 ? all
                     .map((r) => ({
                       ...r,
@@ -54,54 +67,41 @@ export function People() {
                     }))
                     .filter((r) => r.projects.length > 0)
                 : all;
-              if (filtering && rows.length === 0) return <Empty>No one is on a project matching these filters.</Empty>;
-              return rows.length === 0 ? (
-                <Empty>No people yet. Add the people you work with, then add them to projects from their card.</Empty>
-              ) : (
-                <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {rows.map(({ person, projects, tickets }) => {
-                    const current = projects.filter((p) => p.project.status !== "done");
-                    return (
-                      <li key={person.id} className="rounded-2xl border border-line/80 bg-surface p-5 shadow-xs">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <Link to={`/people/${person.id}`} className="block truncate font-medium hover:underline">
-                              {person.name}
-                            </Link>
-                            <div className="truncate text-sm text-muted">{[person.role, person.email].filter(Boolean).join(" · ")}</div>
-                            <JiraFilterLink personId={person.id} url={person.jira_filter} />
-                          </div>
-                          <Link to={`/people/${person.id}/edit`} className="text-xs text-accent">
-                            Edit
-                          </Link>
-                        </div>
-                        {current.length === 0 && <div className="mt-3 text-xs text-muted">Not on any open project</div>}
-                        <Section title="Active projects" count={current.length}>
-                          <ProjectList items={current} />
-                        </Section>
-                        <Section title="Completed projects" count={projects.length - current.length} closed>
-                          <ProjectList items={projects.filter((p) => p.project.status === "done")} />
-                        </Section>
-                        <AddToProject
-                          personId={person.id}
-                          role={person.role}
-                          options={(filter.facets?.projects ?? []).filter((p) => !projects.some((a) => a.project_id === p.id))}
-                        />
-                        <WorkingOnTickets personId={person.id} tickets={tickets} />
-                      </li>
-                    );
-                  })}
-                </ul>
+              const rows = matching.filter((r) => api.inTeam(teamList, r.person, team));
+              if ((filtering || team) && rows.length === 0) return <Empty>No one matches these filters.</Empty>;
+              if (rows.length === 0) return <Empty>No people yet. Add the people you work with, then add them to projects from their card.</Empty>;
+              const card = (r: PersonRow) => (
+                <PersonCard key={r.person.id} row={r} teams={teams} projectOptions={(filter.facets?.projects ?? []).filter((p) => !r.projects.some((a) => a.project_id === p.id))} />
+              );
+              if (!teams || teams.length === 0) return <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2">{rows.map(card)}</ul>;
+              // One section per team, Unassigned last. Empty teams show too (unless filtering) so they can be filled from here.
+              return (
+                <div className="space-y-6">
+                  {api.groupByTeam(teams, rows, !filtering && !team).map((g) => (
+                    <TeamSection key={g.team?.id ?? api.UNASSIGNED} team={g.team} count={g.rows.length} others={all.filter((r) => !g.rows.some((x) => x.person.id === r.person.id)).map((r) => r.person)}>
+                      {g.rows.length === 0 ? (
+                        <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-sm text-muted">Nobody in {g.team?.name} yet. Use “+ Add people” or the team picker on a person’s card.</p>
+                      ) : (
+                        <ul className="stagger grid grid-cols-1 gap-3 sm:grid-cols-2">{g.rows.map(card)}</ul>
+                      )}
+                    </TeamSection>
+                  ))}
+                </div>
               );
             }}
           </Load>
         </div>
+        <div className="space-y-5">
         <Card title="Add a person" className="h-fit">
           <Form
             id="add"
             reset
             className="space-y-3"
-            onSubmit={(v) => mutate(() => api.createPerson({ name: v.name, role: opt(v.role), email: opt(v.email), notes: null, jira_filter: opt(v.jira_filter) }))}
+            onSubmit={(v) =>
+              mutate(() =>
+                api.createPerson({ name: v.name, role: opt(v.role), email: opt(v.email), notes: null, jira_filter: opt(v.jira_filter), ...(v.team_id ? { team_id: Number(v.team_id) } : {}) }),
+              )
+            }
           >
             <Field label="Name">
               <Input name="name" required />
@@ -112,14 +112,164 @@ export function People() {
             <Field label="Email">
               <Input name="email" type="email" />
             </Field>
+            {teams && teams.length > 0 && (
+              <Field label="Team">
+                <Select name="team_id" defaultValue={team && team !== api.UNASSIGNED ? team : ""} options={[{ value: "", label: "No team yet" }, ...teams.map((t) => ({ value: t.id, label: t.name }))]} />
+              </Field>
+            )}
             <Field label="Jira working items link">
               <Input name="jira_filter" type="url" placeholder="Optional" />
             </Field>
             <SubmitButton>Add person</SubmitButton>
           </Form>
         </Card>
+        <TeamsCard teams={teams} />
+        </div>
       </div>
     </>
+  );
+}
+
+type PersonRow = Awaited<ReturnType<typeof api.listPeople>>[number];
+
+function PersonCard({ row: { person, projects, tickets }, teams, projectOptions }: { row: PersonRow; teams: Team[] | null | undefined; projectOptions: { id: number; name: string; status: string }[] }) {
+  const current = projects.filter((p) => p.project.status !== "done");
+  return (
+    <li className="rounded-2xl border border-line/80 bg-surface p-5 shadow-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <Link to={`/people/${person.id}`} className="block truncate font-medium hover:underline">
+            {person.name}
+          </Link>
+          <div className="truncate text-sm text-muted">{[person.role, person.email].filter(Boolean).join(" · ")}</div>
+          <JiraFilterLink personId={person.id} url={person.jira_filter} />
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Link to={`/people/${person.id}/edit`} className="text-xs text-accent">
+            Edit
+          </Link>
+          {teams && teams.length > 0 && <TeamPicker personId={person.id} teamId={person.team_id ?? null} teams={teams} />}
+        </div>
+      </div>
+      {current.length === 0 && <div className="mt-3 text-xs text-muted">Not on any open project</div>}
+      <Section title="Active projects" count={current.length}>
+        <ProjectList items={current} />
+      </Section>
+      <Section title="Completed projects" count={projects.length - current.length} closed>
+        <ProjectList items={projects.filter((p) => p.project.status === "done")} />
+      </Section>
+      <AddToProject personId={person.id} role={person.role} options={projectOptions} />
+      <WorkingOnTickets personId={person.id} tickets={tickets} />
+    </li>
+  );
+}
+
+// Small pill on a person card that puts them in a team or moves them to another.
+function TeamPicker({ personId, teamId, teams }: { personId: number; teamId: number | null; teams: Team[] }) {
+  const mutate = useMutate();
+  const current = teams.find((t) => t.id === teamId);
+  return (
+    <select
+      value={current ? current.id : ""}
+      aria-label="Team"
+      title="Move to another team"
+      className={
+        current
+          ? "max-w-36 cursor-pointer truncate rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent-strong transition hover:border-accent"
+          : "max-w-36 cursor-pointer truncate rounded-full border border-dashed border-line bg-transparent px-2.5 py-0.5 text-xs text-muted transition hover:border-accent hover:text-accent"
+      }
+      onChange={(e) => mutate(() => api.setPersonTeam(personId, e.target.value ? Number(e.target.value) : null))}
+    >
+      <option value="">{current ? "No team" : "+ Team"}</option>
+      {teams.map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// A team's heading on the People page, with a picker that adds anyone not in it yet (moving them from their old team).
+function TeamSection({ team, count, others, children }: { team: Team | null; count: number; others: { id: number; name: string }[]; children: React.ReactNode }) {
+  const mutate = useMutate();
+  return (
+    <details open className="group/team">
+      <summary className="mb-3 flex cursor-pointer list-none items-center gap-2 select-none [&::-webkit-details-marker]:hidden">
+        <span aria-hidden className="inline-block text-muted transition group-open/team:rotate-90">
+          ›
+        </span>
+        <h2 className={team ? "text-base font-semibold" : "text-base font-semibold text-muted"}>{team ? team.name : "Unassigned"}</h2>
+        <span className="rounded-full bg-hover px-2 py-0.5 text-xs font-semibold tabular-nums">{count}</span>
+        {team && others.length > 0 && (
+          <select
+            value=""
+            aria-label={`Add people to ${team.name}`}
+            className="ml-auto max-w-48 cursor-pointer truncate rounded-full border border-dashed border-line bg-transparent px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-accent"
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => e.target.value && mutate(() => api.setPersonTeam(Number(e.target.value), team.id))}
+          >
+            <option value="">+ Add people</option>
+            {others.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </summary>
+      {children}
+    </details>
+  );
+}
+
+// Side card listing the teams: add a new one, rename or delete. Deleting a team keeps its people, as Unassigned.
+function TeamsCard({ teams }: { teams: Team[] | null | undefined }) {
+  const mutate = useMutate();
+  const [editing, setEditing] = useState<number | null>(null);
+  if (teams === undefined) return null;
+  if (teams === null)
+    return (
+      <Card title="Teams" className="h-fit">
+        <p className="text-sm text-muted">Teams need a one-time database update. Run supabase/migrations/20261125000000_teams.sql in the Supabase SQL Editor.</p>
+      </Card>
+    );
+  return (
+    <Card title="Teams" className="h-fit">
+      <ul className="mb-4 divide-y divide-line/70">
+        {teams.map((t) => (
+          <li key={t.id} className="flex items-center gap-2 py-1.5 text-sm">
+            {editing === t.id ? (
+              <Form
+                className="flex flex-1 items-center gap-2"
+                onSubmit={async (v) => {
+                  await mutate(() => api.renameTeam(t.id, v.name));
+                  setEditing(null);
+                }}
+              >
+                <Input name="name" required autoFocus defaultValue={t.name} className="h-8 min-w-0 flex-1 text-sm" />
+                <SubmitButton small>Save</SubmitButton>
+                <button type="button" className="text-xs text-muted hover:text-fg" onClick={() => setEditing(null)}>
+                  Cancel
+                </button>
+              </Form>
+            ) : (
+              <>
+                <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                <button type="button" className="text-xs text-accent hover:underline" onClick={() => setEditing(t.id)}>
+                  Rename
+                </button>
+                <ConfirmButton label="Delete" onConfirm={() => mutate(() => api.deleteTeam(t.id))} />
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      <Form id="add-team" reset className="flex items-center gap-2" onSubmit={(v) => mutate(() => api.createTeam(v.name))}>
+        <Input name="name" required placeholder="New team name" className="min-w-0 flex-1" />
+        <SubmitButton>Add team</SubmitButton>
+      </Form>
+    </Card>
   );
 }
 
@@ -468,6 +618,7 @@ export function EditPerson() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
   const mutate = useMutate();
+  const teams = useQuery({ queryKey: ["teams"], queryFn: api.listTeams }).data;
   return (
     <Load queryKey={["person", id]} fn={() => api.getPerson(id)}>
       {(person) => (
@@ -489,7 +640,16 @@ export function EditPerson() {
           <Form
             className="grid max-w-xl gap-4 rounded-2xl border border-line/80 bg-surface p-5 shadow-xs"
             onSubmit={async (v) => {
-              await mutate(() => api.updatePerson(id, { name: v.name, role: opt(v.role), email: opt(v.email), notes: opt(v.notes), jira_filter: opt(v.jira_filter) }));
+              await mutate(() =>
+                api.updatePerson(id, {
+                  name: v.name,
+                  role: opt(v.role),
+                  email: opt(v.email),
+                  notes: opt(v.notes),
+                  jira_filter: opt(v.jira_filter),
+                  ...(teams?.length ? { team_id: v.team_id ? Number(v.team_id) : null } : {}),
+                }),
+              );
               navigate(`/people/${id}`);
             }}
           >
@@ -502,6 +662,11 @@ export function EditPerson() {
             <Field label="Email">
               <Input name="email" type="email" defaultValue={person.email ?? ""} />
             </Field>
+            {teams && teams.length > 0 && (
+              <Field label="Team">
+                <Select name="team_id" defaultValue={person.team_id ?? ""} options={[{ value: "", label: "No team" }, ...teams.map((t) => ({ value: t.id, label: t.name }))]} />
+              </Field>
+            )}
             <Field label="Jira working items link">
               <Input name="jira_filter" type="url" placeholder="https://quicketsolutions.atlassian.net/issues/?filter=…" defaultValue={person.jira_filter ?? ""} />
             </Field>
