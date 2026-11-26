@@ -222,7 +222,7 @@ export function TicketDetail() {
   );
 }
 
-function TicketBody({ ticket: t, resources, attachments, people }: NonNullable<Awaited<ReturnType<typeof api.getTicket>>>) {
+function TicketBody({ ticket: t, resources, attachments, people, links }: NonNullable<Awaited<ReturnType<typeof api.getTicket>>>) {
   useTitle(t.key);
   const mutate = useMutate();
   const jira = safeHref(t.url);
@@ -269,6 +269,7 @@ function TicketBody({ ticket: t, resources, attachments, people }: NonNullable<A
             {t.notes ? <p className="mt-4 whitespace-pre-wrap text-sm">{t.notes}</p> : <p className="mt-4 text-sm text-muted">No notes yet.</p>}
           </Card>
           <TicketPeopleCard ticketId={t.id} people={people} />
+          <LinkedTicketsCard ticketUrl={t.url} links={links} />
           <ScreenshotsCard items={attachments} target={{ project_id: null, task_id: null, ticket_id: t.id }} />
         </div>
         <div className="min-w-0 space-y-5">
@@ -277,6 +278,53 @@ function TicketBody({ ticket: t, resources, attachments, people }: NonNullable<A
         </div>
       </div>
     </>
+  );
+}
+
+// The Jira tickets linked to this one: the ZST support ticket an internal ticket serves, the RM release it ships in,
+// and, on a ZST, the internal work done for it. Ones in the tracker open here; others open in Jira.
+const LINK_GROUPS: { label: string; test: (key: string) => boolean }[] = [
+  { label: "Support tickets (ZST)", test: (k) => ticketType(k) === "ZST" },
+  { label: "Releases (RM)", test: (k) => ticketType(k) === "RM" },
+  { label: "Internal work", test: (k) => ticketType(k) !== "ZST" && ticketType(k) !== "RM" },
+];
+function LinkedTicketsCard({ ticketUrl, links }: { ticketUrl: string | null; links: { to: api.LinkedTicket[]; from: api.LinkedTicket[] } }) {
+  const all = [...links.to, ...links.from];
+  if (all.length === 0) return null;
+  const site = ticketUrl?.match(/^(https:\/\/[^/]+)\/browse\//)?.[1] ?? null;
+  return (
+    <Card title="Linked in Jira">
+      <div className="space-y-4">
+        {LINK_GROUPS.map(({ label, test }) => {
+          const items = all.filter((l) => test(l.key));
+          if (items.length === 0) return null;
+          return (
+            <div key={label}>
+              <div className="mb-1 text-xs text-muted">{label}</div>
+              <ul className="space-y-1">
+                {items.map((l) => (
+                  <li key={l.key} className="flex items-center gap-3 text-sm">
+                    <span className="w-24 shrink-0 font-mono text-xs">{l.key}</span>
+                    {l.ticket ? (
+                      <Link to={`/tickets/${l.ticket.id}`} className="min-w-0 flex-1 truncate hover:underline">
+                        {l.ticket.title}
+                      </Link>
+                    ) : site ? (
+                      <a href={`${site}/browse/${l.key}`} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate text-muted hover:underline">
+                        Open in Jira ↗
+                      </a>
+                    ) : (
+                      <span className="flex-1 text-muted">Not in the tracker</span>
+                    )}
+                    {l.ticket && <Badge value={l.ticket.status} />}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
   );
 }
 

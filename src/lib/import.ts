@@ -60,10 +60,12 @@ const COLUMN_NAMES = {
   // The day the person was given the ticket in Jira, and the day it moved into its current status (e.g. In Progress).
   assigned: ["assigned on", "assigned", "assigned date", "date assigned"],
   started: ["started on", "started", "in progress since", "status changed", "status category changed"],
+  // Jira keys the ticket is linked to (ZST support tickets, RM releases…), separated by commas, spaces or semicolons.
+  linked: ["linked", "linked tickets", "linked issues", "links"],
 } as const;
 export type Field = keyof typeof COLUMN_NAMES;
 export const FIELDS = Object.keys(COLUMN_NAMES) as Field[];
-export const FIELD_LABELS: Record<Field, string> = { key: "Ticket key", title: "Summary", status: "Status", priority: "Priority", assignee: "Assignee", client: "Client", due: "Due date", assigned: "Assigned on", started: "In progress since" };
+export const FIELD_LABELS: Record<Field, string> = { key: "Ticket key", title: "Summary", status: "Status", priority: "Priority", assignee: "Assignee", client: "Client", due: "Due date", assigned: "Assigned on", started: "In progress since", linked: "Linked tickets" };
 export type Mapping = Record<Field, number>; // column index, or -1 when the file doesn't have it
 
 export function guessMapping(header: string[]): Mapping {
@@ -186,7 +188,7 @@ export function matchPerson(name: string, people: Pick<Person, "id" | "name">[])
 // ---------- Working out the changes ----------
 
 export type ExistingTicket = Ticket & { people: { id: number; assigned_on: string | null }[] };
-type Values = Pick<Ticket, "title" | "client" | "priority" | "status" | "due_date" | "url" | "notes" | "started_on">;
+type Values = Pick<Ticket, "title" | "client" | "priority" | "status" | "due_date" | "url" | "notes" | "started_on" | "linked_keys">;
 // A person to link to the ticket, or whose "assigned on" day to set; assigned_on is null when the file has none.
 type Link = Pick<Person, "id" | "name"> & { assigned_on: string | null };
 export type Change = { field: string; from: string; to: string };
@@ -197,7 +199,7 @@ export type PlanRow =
 export type Plan = { rows: PlanRow[]; unchanged: number; skipped: number; unmatched: { name: string; tickets: number }[]; duplicates: number };
 
 const JIRA_NOTE = /^jira:/i;
-const label = (v: string | null) => (v == null || v === "" ? "none" : v.replace(/_/g, " "));
+const label = (v: string | string[] | null): string => (Array.isArray(v) ? label(v.join(", ")) : v == null || v === "" ? "none" : v.replace(/_/g, " "));
 
 export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTicket[], people: Pick<Person, "id" | "name">[]): Plan {
   const at = (row: string[], field: Field) => (mapping[field] === -1 ? "" : (row[mapping[field]] ?? "").trim());
@@ -230,6 +232,8 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
     const jiraNote = [rawPriority, rawStatus].filter(Boolean).join(", ");
     const assignedOn = mapping.assigned === -1 ? null : toDate(at(row, "assigned"));
     const startedOn = mapping.started === -1 ? null : toDate(at(row, "started"));
+    // Only when the file has the column, so files without it work before the ticket_links update and never clear links.
+    const linked = mapping.linked === -1 ? null : [...new Set(at(row, "linked").toUpperCase().match(/[A-Z][A-Z0-9]*-\d+/g) ?? [])].filter((k) => k !== key).sort();
     // People to link, plus people already linked whose "assigned on" day the file changes.
     const assign: Link[] = [];
     const redated: (Link & { from: string | null })[] = [];
@@ -260,6 +264,7 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
           url: site ? `${site}/browse/${key}` : null,
           notes: jiraNote ? `Jira: ${jiraNote}` : null,
           ...(startedOn ? { started_on: startedOn } : {}),
+          ...(linked ? { linked_keys: linked } : {}),
         },
       });
       continue;
@@ -278,6 +283,10 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
     if (mapping.status !== -1) set("status", mapStatus(rawStatus, title), "Status");
     if (mapping.due !== -1 && toDate(at(row, "due"))) set("due_date", toDate(at(row, "due")), "Due date");
     if (startedOn) set("started_on", startedOn, "In progress since");
+    if (linked && [...(old.linked_keys ?? [])].sort().join(" ") !== linked.join(" ")) {
+      patch.linked_keys = linked;
+      changes.push({ field: "Linked tickets", from: label((old.linked_keys ?? []).join(", ")), to: label(linked.join(", ")) });
+    }
     if (!old.url && site) patch.url = `${site}/browse/${key}`;
     // The "Jira: Major, In Progress" line is kept up to date, but notes you typed yourself are never replaced.
     if (jiraNote && (!old.notes || JIRA_NOTE.test(old.notes)) && old.notes !== `Jira: ${jiraNote}`) {
@@ -329,6 +338,8 @@ const check = <T extends { error: { message: string } | null }>(result: T) => {
     // A file with dates, imported before the database knows about them.
     if (/assigned_on|started_on/.test(result.error.message))
       throw new Error("This file has assignment dates, but the database isn't ready for them yet. Run supabase/migrations/20261126000000_ticket_dates.sql in the Supabase SQL Editor, then import again.");
+    if (/linked_keys/.test(result.error.message))
+      throw new Error("This file has linked tickets, but the database isn't ready for them yet. Run supabase/migrations/20261126120000_ticket_links.sql in the Supabase SQL Editor, then import again.");
     throw new Error(result.error.message);
   }
   return result;

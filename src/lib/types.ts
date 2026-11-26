@@ -49,6 +49,8 @@ export type Ticket = {
   updated_at: string;
   // Day it moved into its current Jira status category (e.g. In Progress). Missing until the ticket_dates update is run.
   started_on?: string | null;
+  // Jira keys this ticket is linked to (ZST support tickets, RM releases…). Missing until the ticket_links update is run.
+  linked_keys?: string[];
 };
 export type Resource = {
   id: number;

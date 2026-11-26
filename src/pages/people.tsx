@@ -566,6 +566,11 @@ function PersonBody({ person, projects, tickets }: NonNullable<Awaited<ReturnTyp
                     <span className="min-w-0">
                       <span className={api.isOpenTicket(t) ? "block truncate text-sm" : "block truncate text-sm text-muted line-through"}>{t.title}</span>
                       {t.client && <span className="block truncate text-xs text-muted">{t.client}</span>}
+                      {(t.linked_keys?.length ?? 0) > 0 && (
+                        <span title="Linked in Jira" className="block truncate font-mono text-xs text-muted">
+                          ↔ {t.linked_keys!.join(" · ")}
+                        </span>
+                      )}
                     </span>
                   </Link>
                   <TicketAgeCell ticket={t} open={api.isOpenTicket(t)} />
