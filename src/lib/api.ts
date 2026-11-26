@@ -198,11 +198,29 @@ export async function getTicket(id: number) {
     listAttachments("ticket_id", id),
     run<{ person: Pick<Person, "id" | "name" | "role"> }[]>(supabase.from("ticket_people").select("person:people(id, name, role)").eq("ticket_id", id)),
   ]);
-  return { ticket, resources, attachments, people: people.map((p) => p.person).sort((a, b) => a.name.localeCompare(b.name)) };
+  return { ticket, resources, attachments, people: people.map((p) => p.person).sort((a, b) => a.name.localeCompare(b.name)), links: await ticketLinks(ticket) };
+}
+
+// Jira tickets this one is linked to, and tickets that link to it (a ZST sees the WP or NET work done for it).
+// Tickets that are in the tracker come with their id and title; others are just a key, opened in Jira.
+// Before the ticket_links update has been run the column is missing and there are simply no links.
+export type LinkedTicket = { key: string; ticket: Pick<Ticket, "id" | "title" | "status"> | null };
+async function ticketLinks(t: Ticket) {
+  if (!Array.isArray(t.linked_keys)) return { to: [] as LinkedTicket[], from: [] as LinkedTicket[] };
+  const keys = t.linked_keys;
+  const [known, back] = await Promise.all([
+    keys.length ? run<Pick<Ticket, "id" | "key" | "title" | "status">[]>(supabase.from("tickets").select("id, key, title, status").in("key", keys)) : [],
+    run<Pick<Ticket, "id" | "key" | "title" | "status">[]>(supabase.from("tickets").select("id, key, title, status").contains("linked_keys", [t.key])),
+  ]);
+  const byKey = new Map(known.map((k) => [k.key.toUpperCase(), k]));
+  return {
+    to: keys.map((key): LinkedTicket => ({ key, ticket: byKey.get(key.toUpperCase()) ?? null })),
+    from: back.filter((b) => !keys.includes(b.key)).map((b): LinkedTicket => ({ key: b.key, ticket: b })),
+  };
 }
 
 // The tickets a person works on, open ones first, most urgent first.
-type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id" | "notes" | "started_on">;
+type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id" | "notes" | "started_on" | "linked_keys">;
 // A ticket as it sits on a person: with the day they were given it, when known.
 export type PersonTicket = AssignedTicket & { assigned_on: string | null };
 const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id, notes";
