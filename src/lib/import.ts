@@ -57,10 +57,13 @@ const COLUMN_NAMES = {
   assignee: ["assignee", "assigned to", "assignees"],
   client: ["customers", "customer", "client", "organizations", "organisation", "organization"],
   due: ["due date", "due", "duedate"],
+  // The day the person was given the ticket in Jira, and the day it moved into its current status (e.g. In Progress).
+  assigned: ["assigned on", "assigned", "assigned date", "date assigned"],
+  started: ["started on", "started", "in progress since", "status changed", "status category changed"],
 } as const;
 export type Field = keyof typeof COLUMN_NAMES;
 export const FIELDS = Object.keys(COLUMN_NAMES) as Field[];
-export const FIELD_LABELS: Record<Field, string> = { key: "Ticket key", title: "Summary", status: "Status", priority: "Priority", assignee: "Assignee", client: "Client", due: "Due date" };
+export const FIELD_LABELS: Record<Field, string> = { key: "Ticket key", title: "Summary", status: "Status", priority: "Priority", assignee: "Assignee", client: "Client", due: "Due date", assigned: "Assigned on", started: "In progress since" };
 export type Mapping = Record<Field, number>; // column index, or -1 when the file doesn't have it
 
 export function guessMapping(header: string[]): Mapping {
@@ -182,12 +185,14 @@ export function matchPerson(name: string, people: Pick<Person, "id" | "name">[])
 
 // ---------- Working out the changes ----------
 
-export type ExistingTicket = Ticket & { people: { id: number }[] };
-type Values = Pick<Ticket, "title" | "client" | "priority" | "status" | "due_date" | "url" | "notes">;
+export type ExistingTicket = Ticket & { people: { id: number; assigned_on: string | null }[] };
+type Values = Pick<Ticket, "title" | "client" | "priority" | "status" | "due_date" | "url" | "notes" | "started_on">;
+// A person to link to the ticket, or whose "assigned on" day to set; assigned_on is null when the file has none.
+type Link = Pick<Person, "id" | "name"> & { assigned_on: string | null };
 export type Change = { field: string; from: string; to: string };
 export type PlanRow =
-  | { kind: "new"; key: string; values: Values; assign: Pick<Person, "id" | "name">[] }
-  | { kind: "changed"; key: string; id: number; title: string; patch: Partial<Values>; changes: Change[]; assign: Pick<Person, "id" | "name">[] }
+  | { kind: "new"; key: string; values: Values; assign: Link[] }
+  | { kind: "changed"; key: string; id: number; title: string; patch: Partial<Values>; changes: Change[]; assign: Link[] }
   | { kind: "missing"; key: string; id: number; title: string; status: TicketStatus };
 export type Plan = { rows: PlanRow[]; unchanged: number; skipped: number; unmatched: { name: string; tickets: number }[]; duplicates: number };
 
@@ -223,11 +228,21 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
     const rawStatus = at(row, "status");
     const old = byKey.get(key);
     const jiraNote = [rawPriority, rawStatus].filter(Boolean).join(", ");
-    const assign: Pick<Person, "id" | "name">[] = [];
+    const assignedOn = mapping.assigned === -1 ? null : toDate(at(row, "assigned"));
+    const startedOn = mapping.started === -1 ? null : toDate(at(row, "started"));
+    // People to link, plus people already linked whose "assigned on" day the file changes.
+    const assign: Link[] = [];
+    const redated: (Link & { from: string | null })[] = [];
     for (const name of at(row, "assignee").split(/[;\n]/).map((n) => n.trim()).filter(Boolean)) {
       const person = matchPerson(name, people);
-      if (!person) unmatched.set(name, (unmatched.get(name) ?? 0) + 1);
-      else if (!old?.people.some((p) => p.id === person.id) && !assign.some((p) => p.id === person.id)) assign.push(person);
+      if (!person) {
+        unmatched.set(name, (unmatched.get(name) ?? 0) + 1);
+        continue;
+      }
+      if (assign.some((p) => p.id === person.id) || redated.some((p) => p.id === person.id)) continue;
+      const link = old?.people.find((p) => p.id === person.id);
+      if (!link) assign.push({ ...person, assigned_on: assignedOn });
+      else if (assignedOn && link.assigned_on !== assignedOn) redated.push({ ...person, assigned_on: assignedOn, from: link.assigned_on });
     }
 
     if (!old) {
@@ -244,6 +259,7 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
           due_date: toDate(at(row, "due")),
           url: site ? `${site}/browse/${key}` : null,
           notes: jiraNote ? `Jira: ${jiraNote}` : null,
+          ...(startedOn ? { started_on: startedOn } : {}),
         },
       });
       continue;
@@ -254,20 +270,23 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
     const set = <K extends keyof Values>(field: K, value: Values[K], name: string) => {
       if ((old[field] ?? null) === (value ?? null)) return;
       patch[field] = value;
-      changes.push({ field: name, from: label(old[field]), to: label(value) });
+      changes.push({ field: name, from: label(old[field] ?? null), to: label(value ?? null) });
     };
     set("title", title, "Summary");
     if (at(row, "client")) set("client", at(row, "client"), "Client");
     if (rawPriority) set("priority", mapPriority(rawPriority), "Priority");
     if (mapping.status !== -1) set("status", mapStatus(rawStatus, title), "Status");
     if (mapping.due !== -1 && toDate(at(row, "due"))) set("due_date", toDate(at(row, "due")), "Due date");
+    if (startedOn) set("started_on", startedOn, "In progress since");
     if (!old.url && site) patch.url = `${site}/browse/${key}`;
     // The "Jira: Major, In Progress" line is kept up to date, but notes you typed yourself are never replaced.
     if (jiraNote && (!old.notes || JIRA_NOTE.test(old.notes)) && old.notes !== `Jira: ${jiraNote}`) {
       patch.notes = `Jira: ${jiraNote}`;
       if (changes.length === 0 && old.notes) changes.push({ field: "In Jira", from: old.notes.replace(JIRA_NOTE, "").trim(), to: jiraNote });
     }
-    for (const p of assign) changes.push({ field: "Working on it", from: "", to: p.name });
+    for (const p of assign) changes.push({ field: "Working on it", from: "", to: p.assigned_on ? `${p.name}, since ${p.assigned_on}` : p.name });
+    for (const p of redated) changes.push({ field: `${p.name} assigned on`, from: label(p.from), to: p.assigned_on! });
+    assign.push(...redated.map(({ from: _from, ...p }) => p));
     if (changes.length === 0 && Object.keys(patch).length === 0) unchanged++;
     else if (changes.length === 0) {
       // Only a link or a first Jira note to fill in: worth saving, not worth a line in the preview.
@@ -294,14 +313,24 @@ export function buildPlan(table: Table, mapping: Mapping, existing: ExistingTick
 // ---------- Saving ----------
 
 export async function loadExisting() {
-  const [tickets, people] = await Promise.all([supabase.from("tickets").select("*, people(id)"), supabase.from("people").select("id, name").order("name")]);
+  // ticket_people(*) rather than named columns, so this works before the ticket_dates update has been run.
+  const [tickets, people] = await Promise.all([supabase.from("tickets").select("*, ticket_people(*)"), supabase.from("people").select("id, name").order("name")]);
   const error = tickets.error ?? people.error;
   if (error) throw new Error(error.message);
-  return { tickets: tickets.data as ExistingTicket[], people: people.data as Pick<Person, "id" | "name">[] };
+  const rows = tickets.data as (Ticket & { ticket_people: { person_id: number; assigned_on?: string | null }[] })[];
+  return {
+    tickets: rows.map(({ ticket_people, ...t }): ExistingTicket => ({ ...t, people: ticket_people.map((l) => ({ id: l.person_id, assigned_on: l.assigned_on ?? null })) })),
+    people: people.data as Pick<Person, "id" | "name">[],
+  };
 }
 
 const check = <T extends { error: { message: string } | null }>(result: T) => {
-  if (result.error) throw new Error(result.error.message);
+  if (result.error) {
+    // A file with dates, imported before the database knows about them.
+    if (/assigned_on|started_on/.test(result.error.message))
+      throw new Error("This file has assignment dates, but the database isn't ready for them yet. Run supabase/migrations/20261126000000_ticket_dates.sql in the Supabase SQL Editor, then import again.");
+    throw new Error(result.error.message);
+  }
   return result;
 };
 
@@ -311,22 +340,26 @@ export async function apply(rows: PlanRow[], onProgress: (done: number, total: n
   const missing = rows.filter((r) => r.kind === "missing");
   const total = rows.length;
   let done = 0;
-  const assignments: { ticket_id: number; person_id: number }[] = [];
+  const assignments: { ticket_id: number; person_id: number; assigned_on: string | null }[] = [];
 
   if (created.length) {
     const inserted = check(await supabase.from("tickets").insert(created.map((r) => ({ key: r.key, project_id: null, ...r.values }))).select("id, key"));
     const ids = new Map((inserted.data as { id: number; key: string }[]).map((t) => [t.key, t.id]));
-    for (const r of created) for (const p of r.assign) assignments.push({ ticket_id: ids.get(r.key)!, person_id: p.id });
+    for (const r of created) for (const p of r.assign) assignments.push({ ticket_id: ids.get(r.key)!, person_id: p.id, assigned_on: p.assigned_on });
     onProgress((done += created.length), total);
   }
   // A few at a time, so a long list neither crawls nor floods the database.
   for (let i = 0; i < changed.length; i += 8) {
     const batch = changed.slice(i, i + 8);
     await Promise.all(batch.filter((r) => Object.keys(r.patch).length > 0).map(async (r) => check(await supabase.from("tickets").update(r.patch).eq("id", r.id))));
-    for (const r of batch) for (const p of r.assign) assignments.push({ ticket_id: r.id, person_id: p.id });
+    for (const r of batch) for (const p of r.assign) assignments.push({ ticket_id: r.id, person_id: p.id, assigned_on: p.assigned_on });
     onProgress((done += batch.length), total);
   }
-  if (assignments.length) check(await supabase.from("ticket_people").upsert(assignments, { ignoreDuplicates: true }));
+  // Links with a date set or update it; links without one are only added, so a file without dates never clears one.
+  const dated = assignments.filter((a) => a.assigned_on);
+  const undated = assignments.filter((a) => !a.assigned_on).map(({ ticket_id, person_id }) => ({ ticket_id, person_id }));
+  if (dated.length) check(await supabase.from("ticket_people").upsert(dated));
+  if (undated.length) check(await supabase.from("ticket_people").upsert(undated, { ignoreDuplicates: true }));
   if (missing.length) {
     check(await supabase.from("tickets").update({ status: "resolved" }).in("id", missing.map((r) => r.id)));
     onProgress((done += missing.length), total);

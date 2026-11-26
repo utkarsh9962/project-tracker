@@ -59,3 +59,13 @@ export function safeHref(url: string | null | undefined): string | undefined {
     return undefined;
   }
 }
+
+// "19 Nov": a date without the year, for tight spaces.
+export function shortDate(date: string): string {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+// Whole days from a YYYY-MM-DD date to today (your local date).
+export function daysSinceDate(date: string): number {
+  return Math.max(0, Math.round((Date.parse(`${today()}T00:00:00Z`) - Date.parse(`${date}T00:00:00Z`)) / 86_400_000));
+}

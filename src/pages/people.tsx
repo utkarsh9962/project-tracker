@@ -8,6 +8,7 @@ import { ActionButton, ConfirmButton, Form, SubmitButton, useMutate } from "@/co
 import { Load } from "@/components/query";
 import { TicketForm } from "@/components/forms/ticket-form";
 import { TeamCard } from "@/components/team-card";
+import { TicketAge, TicketAgeLine } from "@/components/ticket-age";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
 import type { Team } from "@/lib/types";
 import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, Select, StatusBadge, Textarea, useTitle } from "@/components/ui";
@@ -416,6 +417,7 @@ function WorkingOnTickets({ personId, tickets }: { personId: number; tickets: Ca
             <span className="shrink-0 font-mono text-xs text-muted">{t.key}</span>
             <span className="truncate">{t.title}</span>
           </Link>
+          {api.isOpenTicket(t) && <TicketAge ticket={t} />}
           <Badge value={t.priority} />
           <button
             type="button"
@@ -558,6 +560,7 @@ function PersonBody({ person, projects, tickets }: NonNullable<Awaited<ReturnTyp
                   <span className="min-w-0">
                     <span className={api.isOpenTicket(t) ? "block truncate text-sm" : "block truncate text-sm text-muted line-through"}>{t.title}</span>
                     {t.client && <span className="block truncate text-xs text-muted">{t.client}</span>}
+                    {api.isOpenTicket(t) && <TicketAgeLine ticket={t} />}
                   </span>
                 </Link>
                 <div className="flex items-center gap-1.5">

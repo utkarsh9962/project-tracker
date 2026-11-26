@@ -47,6 +47,8 @@ export type Ticket = {
   due_date: string | null;
   notes: string | null;
   updated_at: string;
+  // Day it moved into its current Jira status category (e.g. In Progress). Missing until the ticket_dates update is run.
+  started_on?: string | null;
 };
 export type Resource = {
   id: number;
@@ -60,7 +62,8 @@ export type Resource = {
 };
 export type Milestone = { id: number; project_id: number; title: string; due_date: string | null; done: boolean; created_at: string };
 export type Assignment = { project_id: number; person_id: number; role: string | null };
-export type TicketAssignment = { ticket_id: number; person_id: number };
+// assigned_on: the day this person was given the ticket in Jira. Missing until the ticket_dates update is run.
+export type TicketAssignment = { ticket_id: number; person_id: number; assigned_on?: string | null };
 
 // One line of history, written by database triggers. `changes` holds { field: [before, after] } for an update.
 export type Activity = {
