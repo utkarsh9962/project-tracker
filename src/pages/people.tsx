@@ -8,7 +8,7 @@ import { ActionButton, ConfirmButton, Form, SubmitButton, useMutate } from "@/co
 import { Load } from "@/components/query";
 import { TicketForm } from "@/components/forms/ticket-form";
 import { TeamCard } from "@/components/team-card";
-import { TicketAge, TicketAgeLine } from "@/components/ticket-age";
+import { TicketAge, TicketAgeCell } from "@/components/ticket-age";
 import { ProjectSlicers, Slicer, useProjectFilter } from "@/components/slicers";
 import type { Team } from "@/lib/types";
 import { Badge, buttonClass, Card, DateChip, DueBadge, Empty, Field, Input, LinkButton, PageHeader, Progress, Select, StatusBadge, Textarea, useTitle } from "@/components/ui";
@@ -552,24 +552,31 @@ function PersonBody({ person, projects, tickets }: NonNullable<Awaited<ReturnTyp
         {tickets.length === 0 ? (
           <p className="text-sm text-muted">No tickets yet.</p>
         ) : (
-          <ul className="stagger divide-y divide-line/70">
-            {tickets.map((t) => (
-              <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
-                  <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
-                  <span className="min-w-0">
-                    <span className={api.isOpenTicket(t) ? "block truncate text-sm" : "block truncate text-sm text-muted line-through"}>{t.title}</span>
-                    {t.client && <span className="block truncate text-xs text-muted">{t.client}</span>}
-                    {api.isOpenTicket(t) && <TicketAgeLine ticket={t} />}
-                  </span>
-                </Link>
-                <div className="flex items-center gap-1.5">
-                  <Badge value={t.priority} />
-                  <Badge value={t.status} />
-                </div>
-              </li>
-            ))}
-          </ul>
+          <>
+            <div aria-hidden className="hidden items-center gap-x-3 border-b border-line/70 pb-1.5 text-xs text-muted sm:flex">
+              <span className="flex-1 basis-64">Ticket</span>
+              <span className="w-28 shrink-0">With them for</span>
+              <span className="w-44 text-right">Priority · Status</span>
+            </div>
+            <ul className="stagger divide-y divide-line/70">
+              {tickets.map((t) => (
+                <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                  <Link to={`/tickets/${t.id}`} className="flex min-w-0 flex-1 basis-64 items-center gap-3 hover:opacity-80">
+                    <span className="w-24 shrink-0 font-mono text-xs">{t.key}</span>
+                    <span className="min-w-0">
+                      <span className={api.isOpenTicket(t) ? "block truncate text-sm" : "block truncate text-sm text-muted line-through"}>{t.title}</span>
+                      {t.client && <span className="block truncate text-xs text-muted">{t.client}</span>}
+                    </span>
+                  </Link>
+                  <TicketAgeCell ticket={t} open={api.isOpenTicket(t)} />
+                  <div className="flex w-44 items-center justify-end gap-1.5">
+                    <Badge value={t.priority} />
+                    <Badge value={t.status} />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         {adding ? (
           <NewTicketForPerson person={person} onDone={() => setAdding(false)} />
