@@ -33,14 +33,23 @@ export function TicketAge({ ticket, className }: { ticket: Dated; className?: st
   );
 }
 
-// Spelled out, for a person's page: "Assigned 19 Nov · 7 days · in status since 22 Nov".
-export function TicketAgeLine({ ticket }: { ticket: Dated }) {
-  const age = ticketAge(ticket);
-  if (!age) return null;
+// Its own column on a person's page: the days in bold, the day it was given underneath.
+// Always takes the same width, so rows line up whether or not a ticket has an age.
+export function TicketAgeCell({ ticket, open }: { ticket: Dated; open: boolean }) {
+  const age = open ? ticketAge(ticket) : null;
+  const why = !open ? "" : ticketType(ticket.key) === "ZST" ? "ZST tickets don't show an age" : "No assignment date from Jira yet";
   return (
-    <span title={describe(age)} className="block truncate text-xs text-muted">
-      Assigned {shortDate(age.assigned)} · <span className={cx("font-medium", tone(age.days))}>{plural(age.days)}</span>
-      {age.started && <> · in current status since {shortDate(age.started)}</>}
-    </span>
+    <div className="w-28 shrink-0 text-right sm:text-left">
+      {age ? (
+        <div title={describe(age)}>
+          <div className={cx("text-sm font-semibold tabular-nums", tone(age.days) === "text-muted" ? "text-fg" : tone(age.days))}>{plural(age.days)}</div>
+          <div className="text-xs text-muted">since {shortDate(age.assigned)}</div>
+        </div>
+      ) : (
+        <span title={why} className="text-xs text-muted/60">
+          —
+        </span>
+      )}
+    </div>
   );
 }
