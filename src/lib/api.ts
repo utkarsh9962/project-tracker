@@ -202,7 +202,9 @@ export async function getTicket(id: number) {
 }
 
 // The tickets a person works on, open ones first, most urgent first.
-type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id" | "notes">;
+type AssignedTicket = Pick<Ticket, "id" | "key" | "title" | "status" | "priority" | "due_date" | "project_id" | "notes" | "started_on">;
+// A ticket as it sits on a person: with the day they were given it, when known.
+export type PersonTicket = AssignedTicket & { assigned_on: string | null };
 const TICKET_FIELDS = "id, key, title, status, priority, due_date, project_id, notes";
 const byTicketUrgency = (a: AssignedTicket, b: AssignedTicket) =>
   Number(!isOpenTicket(a)) - Number(!isOpenTicket(b)) || byPriority(a, b) || byDue(a, b) || a.key.localeCompare(b.key);
@@ -211,14 +213,15 @@ export async function listPeople() {
   const [people, assignments, ticketAssignments] = await Promise.all([
     run<Person[]>(supabase.from("people").select("*").order("name")),
     run<(Assignment & { project: Pick<Project, "id" | "name" | "status"> })[]>(supabase.from("project_people").select("*, project:projects(id, name, status)")),
-    run<(TicketAssignment & { ticket: AssignedTicket })[]>(supabase.from("ticket_people").select(`*, ticket:tickets(${TICKET_FIELDS})`)),
+    // "*" rather than a column list, so the page still loads before the ticket_dates update has been run.
+    run<(TicketAssignment & { ticket: AssignedTicket })[]>(supabase.from("ticket_people").select("*, ticket:tickets(*)")),
   ]);
   return people.map((person) => ({
     person,
     projects: assignments.filter((a) => a.person_id === person.id).sort((a, b) => a.project.name.localeCompare(b.project.name)),
     tickets: ticketAssignments
       .filter((a) => a.person_id === person.id)
-      .map((a) => a.ticket)
+      .map((a): PersonTicket => ({ ...a.ticket, assigned_on: a.assigned_on ?? null }))
       .sort(byTicketUrgency),
   }));
 }
@@ -248,7 +251,7 @@ export async function getPersonProjects(id: number) {
   const [assignments, myTasks, myTickets] = await Promise.all([
     run<Assignment[]>(supabase.from("project_people").select("*").eq("person_id", id)),
     run<Task[]>(supabase.from("tasks").select("*").eq("assignee_id", id)),
-    run<{ ticket: AssignedTicket & { client: string | null } }[]>(supabase.from("ticket_people").select(`ticket:tickets(${TICKET_FIELDS}, client)`).eq("person_id", id)),
+    run<(TicketAssignment & { ticket: AssignedTicket & { client: string | null } })[]>(supabase.from("ticket_people").select("*, ticket:tickets(*)").eq("person_id", id)),
   ]);
   const ids = [...new Set([...assignments.map((a) => a.project_id), ...myTasks.map((t) => t.project_id)])];
   const [projects, tasks] = ids.length
@@ -259,7 +262,7 @@ export async function getPersonProjects(id: number) {
     : [[], []];
   return {
     person,
-    tickets: myTickets.map((t) => t.ticket).sort(byTicketUrgency),
+    tickets: myTickets.map((t) => ({ ...t.ticket, assigned_on: t.assigned_on ?? null })).sort(byTicketUrgency),
     projects: projects
       .map((p) => withProgress(p, tasks))
       .sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || byDue(a, b) || a.name.localeCompare(b.name))

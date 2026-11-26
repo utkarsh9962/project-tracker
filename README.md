@@ -13,6 +13,7 @@ The site is hosted for free on **GitHub Pages** and keeps your data in **Supabas
 - **Import from Jira**: drop in a Jira export (Excel or CSV), see what is new, changed or no longer in the export, tick what to keep and apply it. No SQL needed.
 - **Bulk edit**: tick several tickets, or several tasks on a project, and change their status, priority, assignee, project or due date together.
 - **People**: who's on which project and in what role, and a **Workload** page that flags who is overloaded or underloaded. Tickets outside ZST that are waiting to be tested (Jira "Ready for Testing" or "QA") count for the QA team, not the developer, and get their own **QA workload** section with the testing queue. People whose role is QA form that team.
+- **Ticket age**: for tickets outside ZST, when each person was given the ticket in Jira and how many days ago ("19 Nov · 7d"), amber after two weeks and red after a month. The Jira import reads it from optional *Assigned on* and *Started on* columns. Needs `supabase/migrations/20261126000000_ticket_dates.sql`.
 - **Excel exports**: projects with the people on each, and people with their projects, tasks and tickets.
 - **Search** across projects, clients, people, tickets, tasks, milestones, tags, links and notes. It searches as you type and forgives typos and half-typed words.
 - Email and password login (Supabase Auth).
